@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Enterprise System Design Studio</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<button class="v12-mf-menu" id="v12MfMenu" aria-label="Open navigation" aria-expanded="false">☰</button>
+<div class="v12-mf-overlay" id="v12MfOverlay"></div>
+<aside class="v12-mf-drawer" id="v12MfDrawer" aria-hidden="true">
+  <div class="v12-mf-head">
+    <div class="v12-mf-brand">
+      <div class="v12-mf-logo">◆</div>
+      <div><strong>Enterprise Design Studio</strong><span>Module-first design & delivery workspace</span></div>
+    </div>
+    <button class="v12-mf-close" id="v12MfClose" aria-label="Close navigation">×</button>
+  </div>
+  <nav class="v12-mf-scroll" aria-label="Mobile navigation">
+    <div class="v12-mf-section">
+      <div class="v12-mf-title">WORKSPACE</div>
+      <button class="v12-mf-item" data-v12-view="dashboard"><span class="v12-mf-icon">⌂</span><span><strong>Dashboard</strong><small>Project overview</small></span></button>
+      <button class="v12-mf-item" data-v12-view="timeline"><span class="v12-mf-icon">◷</span><span><strong>Timeline</strong><small>Plan and delivery</small></span></button>
+      <button class="v12-mf-item" data-v12-view="modules"><span class="v12-mf-icon">▦</span><span><strong>System Blueprint</strong><small>Modules + four stages</small></span></button>
+      <button class="v12-mf-item" data-v12-view="architecture"><span class="v12-mf-icon">◎</span><span><strong>Architecture Map</strong><small>System relationships</small></span></button>
+    </div>
+    <div class="v12-mf-section">
+      <div class="v12-mf-title">DESIGN</div>
+      <button class="v12-mf-item" data-v12-view="requirements"><span class="v12-mf-icon">▤</span><span><strong>Requirements</strong><small>Business requirements</small></span></button>
+      <button class="v12-mf-item" data-v12-view="screens"><span class="v12-mf-icon">▣</span><span><strong>Screen Designer</strong><small>UI and Oracle mapping</small></span></button>
+      <button class="v12-mf-item" data-v12-view="references"><span class="v12-mf-icon">▧</span><span><strong>Reference Images</strong><small>Upload & view photos</small></span></button>
+      <button class="v12-mf-item" data-v12-view="erd"><span class="v12-mf-icon">◇</span><span><strong>Module ERD</strong><small>Tables and relationships</small></span></button>
+      <button class="v12-mf-item" data-v12-view="full-erd"><span class="v12-mf-icon">◈</span><span><strong>Full Project ERD</strong><small>Complete database model</small></span></button>
+      <button class="v12-mf-item" data-v12-view="backend"><span class="v12-mf-icon">⌘</span><span><strong>Backend Logic</strong><small>APIs & workflows</small></span></button>
+      <button class="v12-mf-item" data-v12-view="tasks"><span class="v12-mf-icon">☷</span><span><strong>Tasks & Traceability</strong><small>Execution tracking</small></span></button>
+    </div>
+    <div class="v12-mf-section">
+      <div class="v12-mf-title">GOVERNANCE</div>
+      <button class="v12-mf-item" data-v12-view="traceability"><span class="v12-mf-icon">↗</span><span><strong>Traceability</strong><small>Requirement to implementation</small></span></button>
+      <button class="v12-mf-item" data-v12-view="validation"><span class="v12-mf-icon">✓</span><span><strong>Validation</strong><small>Quality gates</small></span></button>
+      <button class="v12-mf-item" data-v12-view="documentation"><span class="v12-mf-icon">▧</span><span><strong>Documentation</strong><small>Project knowledge</small></span></button>
+    </div>
+    <div class="v12-mf-section">
+      <div class="v12-mf-title">SECURITY</div>
+      <button class="v12-mf-item" data-v12-view="users"><span class="v12-mf-icon">♙</span><span><strong>Users & Access</strong><small>Roles and permissions</small></span></button>
+      <button class="v12-mf-item" data-v12-view="settings"><span class="v12-mf-icon">⚙</span><span><strong>Settings</strong><small>Project configuration</small></span></button>
+    </div>
+  </nav>
+  <div class="v12-mf-footer">
+    <small>Touch optimized • all sections available</small>
+    <button class="v12-mf-signout" id="v12MfSignout">Sign out</button>
+  </div>
+</aside>
+
+  <div id="app" class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">ES</div>
+        <div>
+          <strong>System Design</strong>
+          <span>Studio v13 · Module-first</span>
+        </div>
+      </div>
+
+      <div class="project-mini">
+        <span class="eyebrow">PROJECT</span>
+        <strong id="sidebarProjectName">Enterprise Management System</strong>
+        <button class="ghost-btn small" data-action="edit-project">Edit project</button>
+      </div>
+
+      <nav id="sidebarNav" class="nav"></nav>
+
+      <div class="sidebar-bottom">
+        <button class="nav-item" data-view="settings"><span class="nav-icon">⚙</span><span>Settings</span></button>
+        <button class="nav-item" data-action="save-project"><span class="nav-icon">💾</span><span>Save JSON</span></button>
+        <label class="nav-item file-label"><span class="nav-icon">↥</span><span>Import JSON</span><input id="importFile" type="file" accept=".json"></label>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div><button id="mobileMenuBtn" class="mobile-menu-btn" type="button" aria-label="Open navigation">☰</button>
+          <div class="breadcrumb" id="breadcrumb">Dashboard</div>
+          <h1 id="pageTitle">Design Studio</h1>
+        </div>
+        <div class="top-actions">
+          <span class="status-pill"><span class="status-dot"></span> Local project</span>
+          <button class="btn secondary" data-action="add-project-comment">💬 Comment</button><button class="btn secondary" data-action="export-project">Export</button>
+          <button class="btn primary" data-action="new-item">＋ New</button>
+        </div>
+      </header>
+
+      <section id="content" class="content"></section>
+    </main>
+  </div>
+
+  <div class="mobile-nav-backdrop" id="mobileNavBackdrop"></div>
+  <div id="modalRoot"></div>
+  <div id="toast" class="toast"></div>
+  <script src="js/store.js"></script>
+  <script src="js/app.js"></script>
+<script src="v12-mobile-navigation.js"></script>
+</body>
+</html>
