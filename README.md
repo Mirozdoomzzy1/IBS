@@ -178,3 +178,12 @@ The navigation and information model are now centered on the **System Blueprint*
 - **Tasks & Traceability** is a new execution-oriented board for planned, in-progress, blocked and completed work, with module-level artifact progress.
 - Project data now reserves explicit relationship fields between requirements, screens, APIs, workflows, entities and timeline tasks so later field-level traceability can be added without changing the overall model.
 - The existing JSON/localStorage format remains backward-compatible through normalization.
+
+
+## GitHub Pages
+
+This is a static client-side application and can be hosted directly from GitHub Pages. Publish the repository root (the folder containing `index.html`). No server-side routing is required. All assets use relative paths, navigation uses the in-page `setView()` API, and the app stores the prototype project in browser localStorage.
+
+
+## Persistence
+All project data is stored locally in browser localStorage when autosave is enabled. This includes requirements, modules, screens, screen components, Oracle/reference images, ERD entities/fields/positions, relationships, APIs, backend logic, timeline/tasks, users, roles, permissions and navigation settings. Use Backup JSON to export the complete project, and Download TXT from Settings for a human-readable snapshot. Import JSON restores the project.
