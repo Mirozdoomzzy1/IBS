@@ -95,7 +95,7 @@ let projectFilePathLabel = "Browser storage (local)";
 // the minimum Contents permission required for this repository.
 // ============================================================
 const GITHUB_STORAGE = {
-  owner: "ibsamr",
+  owner: "Mirozdoomzzy1",
   repo: "IBS",
   branch: "main",
   path: "data/project.json",
