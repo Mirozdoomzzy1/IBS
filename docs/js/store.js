@@ -91,7 +91,7 @@ let projectFilePathLabel = "Browser storage (local)";
 // Create a Supabase project, run SUPABASE-SETUP.sql, then paste the
 // Project URL and the anon/public key below. Never use a service_role key here.
 const SUPABASE_CONFIG = {
-  url: "https://Mirozdoomzzy1.supabase.co",
+  url: "https://bqrzjbcrekhuzwxjlrjs.supabase.co",
   anonKey: "sb_publishable_WrH75xXW4RIfPBp8X6wriw_TPvCee4J",
   table: "projects"
 };
