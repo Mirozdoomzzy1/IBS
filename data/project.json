@@ -4767,7 +4767,8 @@
       "status": "Draft",
       "description": "",
       "comments": "",
-      "components": []
+      "components": [],
+      "referenceImages": []
     }
   ],
   "entities": [
