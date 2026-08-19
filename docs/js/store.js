@@ -87,158 +87,95 @@ let lastSavedAt = null;
 let projectFileHandle = null;
 let projectFilePathLabel = "Browser storage (local)";
 
-// ============================================================
-// GITHUB JSON STORAGE
-// WARNING: This PAT is intentionally hard-coded because you
-// requested client-side GitHub storage. Anyone who can load the
-// website can inspect this token and use it. Give the token ONLY
-// the minimum Contents permission required for this repository.
-// ============================================================
-const GITHUB_STORAGE = {
-  owner: "Mirozdoomzzy1",
-  repo: "IBS",
-  branch: "main",
-  path: "data/project.json",
-  token: "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"
+// ===== Supabase cloud storage =====
+// Create a Supabase project, run SUPABASE-SETUP.sql, then paste the
+// Project URL and the anon/public key below. Never use a service_role key here.
+const SUPABASE_CONFIG = {
+  url: "https://Mirozdoomzzy1.supabase.co",
+  anonKey: "sb_publishable_WrH75xXW4RIfPBp8X6wriw_TPvCee4J",
+  table: "projects"
 };
+let supabaseSaveTimer = null;
+let supabaseLoaded = false;
+let supabaseSaveInProgress = false;
 
-let githubFileSha = null;
-let githubSaveTimer = null;
-let githubSaveInProgress = false;
-let githubSaveQueued = false;
-let githubLastError = "";
-let githubLastPayload = "";
-
-function githubStorageConfigured(){
-  return !!(GITHUB_STORAGE.owner &&
-    GITHUB_STORAGE.repo &&
-    GITHUB_STORAGE.branch &&
-    GITHUB_STORAGE.path &&
-    GITHUB_STORAGE.token &&
-    !GITHUB_STORAGE.owner.startsWith("YOUR_") &&
-    !GITHUB_STORAGE.repo.startsWith("YOUR_") &&
-    !GITHUB_STORAGE.token.includes("PASTE_YOUR_TOKEN"));
+function supabaseConfigured(){
+  return !!SUPABASE_CONFIG.url &&
+    !SUPABASE_CONFIG.url.includes("YOUR-PROJECT") &&
+    !!SUPABASE_CONFIG.anonKey &&
+    !SUPABASE_CONFIG.anonKey.includes("YOUR_SUPABASE");
 }
-
-function githubApiHeaders(){
+function supabaseHeaders(extra={}){
   return {
-    "Accept":"application/vnd.github+json",
-    "Authorization":"Bearer "+GITHUB_STORAGE.token,
-    "X-GitHub-Api-Version":"2022-11-28",
-    "Content-Type":"application/json"
+    apikey: SUPABASE_CONFIG.anonKey,
+    Authorization: "Bearer "+SUPABASE_CONFIG.anonKey,
+    "Content-Type": "application/json",
+    ...extra
   };
 }
-
-function githubFileUrl(){
-  return "https://api.github.com/repos/"+encodeURIComponent(GITHUB_STORAGE.owner)+"/"+encodeURIComponent(GITHUB_STORAGE.repo)+"/contents/"+GITHUB_STORAGE.path.split("/").map(encodeURIComponent).join("/");
+function supabaseUrl(query=""){
+  return `${SUPABASE_CONFIG.url}/rest/v1/${SUPABASE_CONFIG.table}${query}`;
 }
-
-function decodeGithubContent(base64){
-  const binary=atob(String(base64||"").replace(/\n/g,""));
-  const bytes=Uint8Array.from(binary,c=>c.charCodeAt(0));
-  return new TextDecoder("utf-8").decode(bytes);
-}
-
-function encodeGithubContent(text){
-  const bytes=new TextEncoder().encode(text);
-  let binary="";
-  const chunk=0x8000;
-  for(let i=0;i<bytes.length;i+=chunk)binary+=String.fromCharCode(...bytes.subarray(i,i+chunk));
-  return btoa(binary);
-}
-
-async function githubReadProject(showError=false){
-  if(!githubStorageConfigured())return false;
-  try{
-    const response=await fetch(githubFileUrl()+"?ref="+encodeURIComponent(GITHUB_STORAGE.branch)+"&t="+Date.now(),{
-      method:"GET",
-      headers:githubApiHeaders(),
-      cache:"no-store"
+async function loadSupabaseProject(){
+  if(!supabaseConfigured()) return false;
+  try {
+    const id=encodeURIComponent(project?.project?.id || DEFAULT_PROJECT.project.id);
+    const response=await fetch(supabaseUrl(`?id=eq.${id}&select=project_data,updated_at`),{
+      method:"GET", headers:supabaseHeaders(), cache:"no-store"
     });
-    if(!response.ok)throw new Error("GitHub GET "+response.status+": "+await response.text());
-    const data=await response.json();
-    if(!data.content)throw new Error("GitHub returned no file content");
-    githubFileSha=data.sha||null;
-    const rawProject=decodeGithubContent(data.content);
-    githubLastPayload=rawProject;
-    const parsed=JSON.parse(rawProject);
-    project=parsed;
-    normalizeProject({skipGitHubSave:true});
-    localStorage.setItem("enterpriseSystemDesignStudio",JSON.stringify(project,null,2));
-    localStorage.setItem("enterpriseSystemDesignStudio.lastSaved",new Date().toISOString());
-    lastSavedAt=new Date();
-    projectFilePathLabel="GitHub: "+GITHUB_STORAGE.owner+"/"+GITHUB_STORAGE.repo+"/"+GITHUB_STORAGE.path;
-    githubLastError="";
-    return true;
-  }catch(e){
-    githubLastError=String(e?.message||e);
-    console.warn("GitHub project load failed",e);
-    if(showError && window.showToast)showToast("GitHub load failed: "+githubLastError);
-    return false;
-  }
-}
-
-async function githubSaveProject(show=true){
-  if(!githubStorageConfigured())return false;
-  if(githubSaveInProgress){ githubSaveQueued=true; return false; }
-  githubSaveInProgress=true;
-  try{
-    const payload=JSON.stringify(project,null,2);
-    if(payload===githubLastPayload){
-      githubLastPayload=payload;
+    if(!response.ok){
+      const body=await response.text();
+      throw new Error(`Supabase ${response.status}: ${body}`);
+    }
+    const rows=await response.json();
+    if(rows.length){
+      project=typeof rows[0].project_data === "string" ? JSON.parse(rows[0].project_data) : rows[0].project_data;
+      supabaseLoaded=true;
+      projectFilePathLabel="Supabase cloud database";
+      localStorage.setItem("enterpriseSystemDesignStudio",JSON.stringify(project));
       return true;
     }
-    // Always refresh the SHA immediately before writing. This prevents
-    // accidentally overwriting a newer commit made from another device.
-    const current=await fetch(githubFileUrl()+"?ref="+encodeURIComponent(GITHUB_STORAGE.branch)+"&t="+Date.now(),{
-      method:"GET",headers:githubApiHeaders(),cache:"no-store"
-    });
-    if(!current.ok)throw new Error("GitHub read before save failed: "+current.status+" "+await current.text());
-    const currentData=await current.json();
-    const latestSha=currentData.sha;
-    if(githubFileSha && latestSha && githubFileSha!==latestSha){
-      githubFileSha=latestSha;
-      throw new Error("CONFLICT: project.json changed on GitHub from another device. Reload the project before saving.");
-    }
-    const body={
-      message:"Update Enterprise System Design Studio project",
-      content:encodeGithubContent(payload),
-      branch:GITHUB_STORAGE.branch,
-      sha:latestSha
-    };
-    const response=await fetch(githubFileUrl(),{
-      method:"PUT",
-      headers:githubApiHeaders(),
-      body:JSON.stringify(body)
-    });
-    if(!response.ok)throw new Error("GitHub save "+response.status+": "+await response.text());
-    const result=await response.json();
-    githubFileSha=result?.content?.sha||result?.commit?.sha||latestSha;
-    githubLastPayload=payload;
-    githubLastError="";
-    projectFilePathLabel="GitHub: "+GITHUB_STORAGE.owner+"/"+GITHUB_STORAGE.repo+"/"+GITHUB_STORAGE.path;
-    if(show && window.showToast)showToast("Project saved to GitHub");
-    return true;
-  }catch(e){
-    githubLastError=String(e?.message||e);
-    console.error("GitHub project save failed",e);
-    if(show && window.showToast)showToast(githubLastError.startsWith("CONFLICT:")?githubLastError:"GitHub save failed");
     return false;
-  }finally{
-    githubSaveInProgress=false;
-    if(githubSaveQueued){
-      githubSaveQueued=false;
-      scheduleGithubSave();
-    }
+  } catch(e){
+    console.error("Supabase project load failed",e);
+    if(window.showToast) showToast("Cloud load failed: "+(e.message||e));
+    return false;
   }
 }
-
-function scheduleGithubSave(show=false){
-  if(!githubStorageConfigured() || !project)return;
-  clearTimeout(githubSaveTimer);
-  githubSaveTimer=setTimeout(()=>githubSaveProject(show),1200);
+async function saveProjectToSupabase(){
+  if(!supabaseConfigured() || !project || supabaseSaveInProgress) return false;
+  supabaseSaveInProgress=true;
+  try {
+    const row={
+      id: project.project?.id || DEFAULT_PROJECT.project.id,
+      project_data: project,
+      updated_at: new Date().toISOString()
+    };
+    const response=await fetch(supabaseUrl(`?on_conflict=id`),{
+      method:"POST",
+      headers:supabaseHeaders({Prefer:"resolution=merge-duplicates,return=minimal"}),
+      body:JSON.stringify(row)
+    });
+    if(!response.ok){
+      const body=await response.text();
+      throw new Error(`Supabase ${response.status}: ${body}`);
+    }
+    supabaseLoaded=true;
+    projectFilePathLabel="Supabase cloud database";
+    return true;
+  } catch(e){
+    console.error("Supabase project save failed",e);
+    if(window.showToast) showToast("Cloud save failed: "+(e.message||e));
+    return false;
+  } finally {
+    supabaseSaveInProgress=false;
+  }
 }
-
+function scheduleSupabaseSave(){
+  if(!supabaseConfigured() || !project) return;
+  clearTimeout(supabaseSaveTimer);
+  supabaseSaveTimer=setTimeout(()=>saveProjectToSupabase(),700);
+}
 
 function clone(v){ return JSON.parse(JSON.stringify(v)); }
 function isoDate(value){
@@ -277,16 +214,11 @@ function timelineWeeks(tasks){
 
 
 async function loadWebsiteProject(){
-  // GitHub is the source of truth. The public JSON is only a fallback
-  // for first-time setup or if GitHub storage is not configured.
-  if(await githubReadProject(false))return true;
   try {
-    const response=await fetch("./data/project.json?ts="+Date.now(),{cache:"no-store"});
+    const response=await fetch("./data/project.json",{cache:"no-store"});
     if(!response.ok)return false;
     const data=await response.json();
-    project=data; normalizeProject({skipGitHubSave:true});
-    saveProject(false);
-    return true;
+    project=data; normalizeProject(); saveProject(false); return true;
   } catch(e){ console.warn("Website project JSON not loaded",e); return false; }
 }
 function loadProject(){
@@ -431,7 +363,7 @@ function seedNewModuleArtifacts(){
   addApi({id:"API-ARC-001",moduleId:"ARCHIVE",method:"POST",path:"/api/archive",name:"Archive Document",permission:"ARCHIVE.CREATE",status:"Draft",description:"Archive a document with retention metadata.",inputs:"sourceType, sourceId, fileName, filePath, retainUntil",rules:"Retention policy must be satisfied.",logic:"Validate → archive → index → audit."});
 }
 
-function normalizeProject(options={}){
+function normalizeProject(){
   project.modules ||= [];
   ensureRequiredModules();
   project.requirements ||= [];
@@ -447,21 +379,20 @@ function normalizeProject(options={}){
   ["modules","requirements","screens","entities","relations","apis","logic","timeline"].forEach(k=>(project[k]||[]).forEach(x=>x.comments ||= ""));
   seedDefaultScreens();
   seedTimeline(false);
-  if(!options.skipGitHubSave) saveProject(false);
 }
 
 function saveProject(show=true){
   try {
     const payload = JSON.stringify(project, null, 2);
-    // localStorage remains a fast offline cache, but GitHub is the source of truth.
     localStorage.setItem("enterpriseSystemDesignStudio", payload);
     localStorage.setItem("enterpriseSystemDesignStudio.lastSaved", new Date().toISOString());
     lastSavedAt = new Date();
     if(projectFileHandle) writeProjectFile(payload, false);
-    if(githubStorageConfigured()) scheduleGithubSave(show);
-    if(show && window.showToast) {
-      if(githubStorageConfigured()) showToast("Saving project to GitHub…");
-      else showToast(projectFileHandle ? "Project saved to JSON file" : "Project saved locally");
+    if(supabaseConfigured()) {
+      scheduleSupabaseSave();
+      if(show && window.showToast) showToast("Saved — syncing to cloud...");
+    } else if(show && window.showToast) {
+      showToast(projectFileHandle ? "Project saved to JSON file" : "Project saved locally");
     }
     return true;
   } catch(e) {

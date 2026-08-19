@@ -1446,13 +1446,17 @@ function render(){
 document.addEventListener("DOMContentLoaded",async()=>{
   try {
     const hadLocal=!!localStorage.getItem("enterpriseSystemDesignStudio");
-    loadProject(); normalizeProject(); securityDefaults(); installPersistence(); render();
-
-    // GitHub is the cross-device source of truth. Local storage is only a cache.
-    let loaded=false;
-    if(typeof githubStorageConfigured==='function' && githubStorageConfigured()) loaded=await githubReadProject(false);
-    else if(!hadLocal && typeof loadWebsiteProject==='function') loaded=await loadWebsiteProject();
-    if(loaded && project?.modules?.length){ securityDefaults(); render(); }
+    loadProject();
+    normalizeProject();
+    if(typeof loadSupabaseProject==='function' && supabaseConfigured()){
+      const loaded=await loadSupabaseProject();
+      if(loaded) { normalizeProject(); }
+      else { saveProject(false); }
+    } else if(!hadLocal && typeof loadWebsiteProject==='function') {
+      const loaded=await loadWebsiteProject();
+      if(loaded && project?.modules?.length){ normalizeProject(); }
+    }
+    securityDefaults(); installPersistence(); render();
   } catch(err) { console.error(err); const root=document.getElementById('content'); if(root) root.innerHTML='<div class="card"><h2>Design Studio could not start</h2><p>Please reload the page. If this is hosted on GitHub Pages, make sure the repository Pages source is set to the root of the branch.</p><pre style="white-space:pre-wrap;color:#b42318">'+String(err?.stack||err)+'</pre></div>'; }
   $("#importFile").onchange=e=>{if(e.target.files[0])importProject(e.target.files[0])};
   const menu=$("#mobileMenuBtn"), backdrop=$("#mobileNavBackdrop");
