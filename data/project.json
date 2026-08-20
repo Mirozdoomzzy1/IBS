@@ -4758,6 +4758,16 @@
         }
       ],
       "referenceImages": []
+    },
+    {
+      "id": "SCR-mt182tas-9pzm",
+      "moduleId": "PERSONNEL",
+      "name": "Operation — Screen design",
+      "type": "Form",
+      "status": "Draft",
+      "description": "",
+      "comments": "",
+      "components": []
     }
   ],
   "entities": [
