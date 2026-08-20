@@ -584,6 +584,28 @@ body.erd-dragging{cursor:grabbing!important;user-select:none!important}
   <div class="mobile-nav-backdrop" id="mobileNavBackdrop"></div>
   <div id="modalRoot"></div>
   <div id="toast" class="toast"></div>
+<footer id="supabaseStatusFooter" aria-label="Supabase save status">
+  <div class="supabase-footer-title">☁ Supabase</div>
+  <div id="supabaseDiagState">🔵 STARTING</div>
+  <div id="supabaseDiagMessage">Checking…</div>
+  <div id="supabaseDiagRevision"></div>
+  <div id="supabaseDiagError"></div>
+  <button id="supabaseDiagTest" type="button">Test</button>
+  <button id="supabaseDiagSave" type="button">Force Save</button>
+</footer>
+
+<style id="supabaseStatusFooterStyle">
+#supabaseStatusFooter{position:fixed;left:0;right:0;bottom:0;z-index:2147483646;display:flex;align-items:center;gap:10px;min-height:34px;padding:6px 12px;box-sizing:border-box;background:#111827;color:#fff;border-top:1px solid rgba(255,255,255,.12);font:12px/1.3 Arial,sans-serif;box-shadow:0 -2px 12px rgba(0,0,0,.18)}
+#supabaseStatusFooter .supabase-footer-title{font-weight:700;white-space:nowrap}
+#supabaseDiagState{font-weight:700;white-space:nowrap}
+#supabaseDiagMessage{opacity:.85;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:80px;flex:1}
+#supabaseDiagRevision,#supabaseDiagError{opacity:.8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:28vw}
+#supabaseDiagError{color:#fca5a5}
+#supabaseStatusFooter button{border:0;border-radius:5px;padding:5px 9px;cursor:pointer;background:#fff;color:#111827;font-size:11px}
+@media(max-width:700px){#supabaseStatusFooter{gap:6px;font-size:11px}.supabase-footer-title{display:none}#supabaseDiagRevision,#supabaseDiagError{display:none}#supabaseDiagMessage{max-width:38vw}}
+body{padding-bottom:46px}
+</style>
+
   <script src="js/supabase-diagnostic.js?v=20260820"></script>
   <script src="js/store.js?v=20260820"></script>
   <script src="js/app.js?v=20260820"></script>
