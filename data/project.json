@@ -4767,7 +4767,18 @@
       "status": "Draft",
       "description": "",
       "comments": "",
-      "components": []
+      "components": [
+        {
+          "id": "cmp-mt1834wt-5ik5",
+          "type": "text",
+          "label": "Text Field",
+          "required": false,
+          "entityField": "",
+          "apiField": "",
+          "comment": ""
+        }
+      ],
+      "referenceImages": []
     }
   ],
   "entities": [
