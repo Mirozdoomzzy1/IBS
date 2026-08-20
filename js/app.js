@@ -1095,7 +1095,8 @@ function renderSettings(){
   <div class="settings-list">
     <div class="setting"><div><strong>Autosave</strong><div class="muted small-text">Persist changes in browser localStorage.</div></div><input id="autosave" type="checkbox" ${project.settings.autosave!==false?"checked":""}></div>
     <div class="setting"><div><strong>Grid size</strong><div class="muted small-text">ERD canvas grid.</div></div><select id="gridSize"><option ${project.settings.gridSize==16?"selected":""}>16</option><option ${project.settings.gridSize==24?"selected":""}>24</option><option ${project.settings.gridSize==32?"selected":""}>32</option></select></div>
-    <div class="setting"><div><strong>Project JSON file</strong><div class="muted small-text">One JSON file is the portable source of truth for requirements, screens, ERD, backend logic, timeline, tasks, references, users and permissions.</div><div class="muted small-text" id="projectFileStatus">${esc(typeof projectFileStatus==='function'?projectFileStatus():'Browser storage (local)')}</div></div><div class="module-meta"><button class="btn primary" data-action="connect-project-file">Connect JSON File</button><button class="btn secondary" data-action="export-project">Download JSON</button><button class="btn secondary" data-action="export-text">Download TXT</button><label class="btn secondary file-btn">Load JSON<input id="settingsImportFile" type="file" accept=".json" hidden></label></div></div>
+    <div class="setting"><div><strong>Cloud database</strong><div class="muted small-text">All project parts are stored in Supabase tables: modules, requirements, screens, components, ERD entities/fields, relationships, APIs, workflows, timeline/tasks, references, users, roles, permissions and module access.</div><div class="muted small-text">${esc(typeof supabaseStatus==='function'?supabaseStatus():'Supabase is not configured')}</div></div><div class="module-meta"><button class="btn secondary" data-action="test-cloud">Test connection</button><button class="btn primary" data-action="save-cloud">Save to Supabase now</button></div></div>
+    <div class="setting"><div><strong>Project JSON file</strong><div class="muted small-text">Portable backup of the complete project.</div><div class="muted small-text" id="projectFileStatus">${esc(typeof projectFileStatus==='function'?projectFileStatus():'Browser storage (local)')}</div></div><div class="module-meta"><button class="btn secondary" data-action="connect-project-file">Connect JSON File</button><button class="btn secondary" data-action="export-project">Download JSON</button><button class="btn secondary" data-action="export-text">Download TXT</button><label class="btn secondary file-btn">Load JSON<input id="settingsImportFile" type="file" accept=".json" hidden></label></div></div>
     <div class="setting"><div><strong>Project reset</strong><div class="muted small-text">Restore the demo project and lose local changes.</div></div><button class="btn secondary" data-action="reset-project">Reset demo</button></div>
   </div></div>`;
   $("#autosave").onchange=e=>{project.settings.autosave=e.target.checked;saveProject(false)};
@@ -1191,6 +1192,8 @@ function handleAction(action,id){
     case "edit-role": state.editing={type:"role",id};modal("Edit Role",roleForm(project.security.roles.find(x=>x.id===id)));break;
     case "edit-project": modal("Edit Project",`<div class="form-grid"><div class="field"><label>Project ID</label><input name="id" value="${esc(project.project.id)}"></div><div class="field"><label>Project name</label><input name="name" value="${esc(project.project.name)}"></div><div class="field"><label>Owner</label><input name="owner" value="${esc(project.project.owner)}"></div><div class="field full"><label>Description</label><textarea name="description">${esc(project.project.description)}</textarea></div>${commentsField(project.project)}</div>`); state.editing={type:"project"};break;
     case "save-project": exportProject();break;
+    case "save-cloud": if(typeof saveProjectToSupabase==='function') saveProjectToSupabase(); break;
+    case "test-cloud": if(typeof testSupabaseConnection==='function') testSupabaseConnection(); break;
     case "connect-project-file": connectProjectFile();break;
     case "export-text": downloadTextProject();break;
     case "export-project": exportProject();break;
@@ -1448,15 +1451,22 @@ document.addEventListener("DOMContentLoaded",async()=>{
     const hadLocal=!!localStorage.getItem("enterpriseSystemDesignStudio");
     loadProject();
     normalizeProject();
+    securityDefaults();
     if(typeof loadSupabaseProject==='function' && supabaseConfigured()){
       const loaded=await loadSupabaseProject();
-      if(loaded) { normalizeProject(); }
-      else { saveProject(false); }
+      if(loaded) {
+        normalizeProject();
+        securityDefaults();
+      } else {
+        // First run: seed the cloud database from the current project.
+        saveProject(false);
+        await saveProjectToSupabase();
+      }
     } else if(!hadLocal && typeof loadWebsiteProject==='function') {
       const loaded=await loadWebsiteProject();
-      if(loaded && project?.modules?.length){ normalizeProject(); }
+      if(loaded && project?.modules?.length){ normalizeProject(); securityDefaults(); }
     }
-    securityDefaults(); installPersistence(); render();
+    installPersistence(); render();
   } catch(err) { console.error(err); const root=document.getElementById('content'); if(root) root.innerHTML='<div class="card"><h2>Design Studio could not start</h2><p>Please reload the page. If this is hosted on GitHub Pages, make sure the repository Pages source is set to the root of the branch.</p><pre style="white-space:pre-wrap;color:#b42318">'+String(err?.stack||err)+'</pre></div>'; }
   $("#importFile").onchange=e=>{if(e.target.files[0])importProject(e.target.files[0])};
   const menu=$("#mobileMenuBtn"), backdrop=$("#mobileNavBackdrop");

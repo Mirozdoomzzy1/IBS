@@ -187,3 +187,7 @@ This is a static client-side application and can be hosted directly from GitHub 
 
 ## Persistence
 All project data is stored locally in browser localStorage when autosave is enabled. This includes requirements, modules, screens, screen components, Oracle/reference images, ERD entities/fields/positions, relationships, APIs, backend logic, timeline/tasks, users, roles, permissions and navigation settings. Use Backup JSON to export the complete project, and Download TXT from Settings for a human-readable snapshot. Import JSON restores the project.
+
+
+## Cloud database
+This version uses the full Supabase relational database described in SUPABASE-SETUP.sql. The database is the source of truth when Supabase is configured.

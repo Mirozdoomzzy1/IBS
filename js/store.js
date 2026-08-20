@@ -87,94 +87,138 @@ let lastSavedAt = null;
 let projectFileHandle = null;
 let projectFilePathLabel = "Browser storage (local)";
 
-// ===== Supabase cloud storage =====
-// Create a Supabase project, run SUPABASE-SETUP.sql, then paste the
-// Project URL and the anon/public key below. Never use a service_role key here.
+// ===== Supabase cloud database =====
+// Paste your Supabase Project URL and the public anon/publishable key here.
+// Never put the Supabase service_role/secret key in this file.
 const SUPABASE_CONFIG = {
   url: "https://bqrzjbcrekhuzwxjlrjs.supabase.co",
-  anonKey: "sb_publishable_WrH75xXW4RIfPBp8X6wriw_TPvCee4J",
-  table: "projects"
+  // Use the Supabase Publishable key (sb_publishable_...) for new projects,
+  // or the legacy anon key if your project still uses legacy API keys.
+  anonKey: "sb_publishable_WrH75xXW4RIfPBp8X6wriw_TPvCee4J"
 };
+
 let supabaseSaveTimer = null;
-let supabaseLoaded = false;
 let supabaseSaveInProgress = false;
+let supabaseSavePending = false;
+let supabaseLastSavedAt = null;
 
 function supabaseConfigured(){
   return !!SUPABASE_CONFIG.url &&
-    !SUPABASE_CONFIG.url.includes("YOUR-PROJECT") &&
+    /^https:\/\/[^\s]+\.supabase\.co$/.test(SUPABASE_CONFIG.url) &&
     !!SUPABASE_CONFIG.anonKey &&
     !SUPABASE_CONFIG.anonKey.includes("YOUR_SUPABASE");
 }
 function supabaseHeaders(extra={}){
-  return {
+  const headers={
     apikey: SUPABASE_CONFIG.anonKey,
-    Authorization: "Bearer "+SUPABASE_CONFIG.anonKey,
     "Content-Type": "application/json",
     ...extra
   };
+  // New Supabase publishable keys are opaque keys and must not be sent as a JWT Bearer token.
+  // Legacy anon JWT keys can still use Authorization.
+  if(!SUPABASE_CONFIG.anonKey.startsWith("sb_publishable_")){
+    headers.Authorization="Bearer "+SUPABASE_CONFIG.anonKey;
+  }
+  return headers;
 }
-function supabaseUrl(query=""){
-  return `${SUPABASE_CONFIG.url}/rest/v1/${SUPABASE_CONFIG.table}${query}`;
+function supabaseRpcUrl(name){
+  return `${SUPABASE_CONFIG.url}/rest/v1/rpc/${name}`;
 }
+function supabaseErrorMessage(status, body){
+  let detail=body;
+  try {
+    const j=JSON.parse(body);
+    detail=j.message || j.error_description || j.details || j.hint || JSON.stringify(j);
+  } catch(_e){}
+  return `Supabase ${status}: ${detail}`;
+}
+
+async function supabaseRpc(name, payload){
+  const response=await fetch(supabaseRpcUrl(name),{
+    method:"POST",
+    headers:supabaseHeaders({Prefer:"return=representation"}),
+    body:JSON.stringify(payload),
+    cache:"no-store"
+  });
+  const body=await response.text();
+  if(!response.ok) throw new Error(supabaseErrorMessage(response.status,body));
+  try { return body ? JSON.parse(body) : null; }
+  catch(_e){ return body; }
+}
+
 async function loadSupabaseProject(){
   if(!supabaseConfigured()) return false;
   try {
-    const id=encodeURIComponent(project?.project?.id || DEFAULT_PROJECT.project.id);
-    const response=await fetch(supabaseUrl(`?id=eq.${id}&select=project_data,updated_at`),{
-      method:"GET", headers:supabaseHeaders(), cache:"no-store"
-    });
-    if(!response.ok){
-      const body=await response.text();
-      throw new Error(`Supabase ${response.status}: ${body}`);
-    }
-    const rows=await response.json();
-    if(rows.length){
-      project=typeof rows[0].project_data === "string" ? JSON.parse(rows[0].project_data) : rows[0].project_data;
-      supabaseLoaded=true;
-      projectFilePathLabel="Supabase cloud database";
-      localStorage.setItem("enterpriseSystemDesignStudio",JSON.stringify(project));
-      return true;
-    }
-    return false;
+    const id=project?.project?.id || DEFAULT_PROJECT.project.id;
+    const result=await supabaseRpc("load_ibs_project",{p_project_id:id});
+    if(!result) return false;
+    const data=Array.isArray(result) ? result[0] : result;
+    if(!data) return false;
+    project=data;
+    projectFilePathLabel="Supabase database";
+    localStorage.setItem("enterpriseSystemDesignStudio",JSON.stringify(project));
+    return true;
   } catch(e){
     console.error("Supabase project load failed",e);
     if(window.showToast) showToast("Cloud load failed: "+(e.message||e));
     return false;
   }
 }
+
 async function saveProjectToSupabase(){
-  if(!supabaseConfigured() || !project || supabaseSaveInProgress) return false;
+  if(!supabaseConfigured() || !project) return false;
+  if(supabaseSaveInProgress){
+    supabaseSavePending=true;
+    return false;
+  }
   supabaseSaveInProgress=true;
+  supabaseSavePending=false;
   try {
-    const row={
-      id: project.project?.id || DEFAULT_PROJECT.project.id,
-      project_data: project,
-      updated_at: new Date().toISOString()
-    };
-    const response=await fetch(supabaseUrl(`?on_conflict=id`),{
-      method:"POST",
-      headers:supabaseHeaders({Prefer:"resolution=merge-duplicates,return=minimal"}),
-      body:JSON.stringify(row)
-    });
-    if(!response.ok){
-      const body=await response.text();
-      throw new Error(`Supabase ${response.status}: ${body}`);
-    }
-    supabaseLoaded=true;
-    projectFilePathLabel="Supabase cloud database";
-    return true;
+    const result=await supabaseRpc("save_ibs_project",{p_project:project});
+    supabaseLastSavedAt=new Date();
+    projectFilePathLabel="Supabase database";
+    if(window.showToast) showToast("Saved to Supabase ✓");
+    return !!result;
   } catch(e){
     console.error("Supabase project save failed",e);
     if(window.showToast) showToast("Cloud save failed: "+(e.message||e));
     return false;
   } finally {
     supabaseSaveInProgress=false;
+    if(supabaseSavePending){
+      supabaseSavePending=false;
+      scheduleSupabaseSave();
+    }
   }
 }
 function scheduleSupabaseSave(){
   if(!supabaseConfigured() || !project) return;
+  supabaseSavePending=true;
   clearTimeout(supabaseSaveTimer);
-  supabaseSaveTimer=setTimeout(()=>saveProjectToSupabase(),700);
+  supabaseSaveTimer=setTimeout(()=>{
+    supabaseSavePending=false;
+    saveProjectToSupabase();
+  },500);
+}
+function supabaseStatus(){
+  if(!supabaseConfigured()) return "Supabase is not configured";
+  if(supabaseSaveInProgress) return "Saving to Supabase…";
+  return supabaseLastSavedAt ? `Supabase saved ${supabaseLastSavedAt.toLocaleTimeString()}` : "Supabase connected";
+}
+async function testSupabaseConnection(){
+  if(!supabaseConfigured()){
+    if(window.showToast) showToast("Supabase is not configured. Add the Project URL and Publishable/anon key.");
+    return false;
+  }
+  try{
+    await supabaseRpc("load_ibs_project",{p_project_id:project?.project?.id || DEFAULT_PROJECT.project.id});
+    if(window.showToast) showToast("Supabase connection OK ✓");
+    return true;
+  }catch(e){
+    console.error("Supabase connection test failed",e);
+    if(window.showToast) showToast("Supabase connection failed: "+(e.message||e));
+    return false;
+  }
 }
 
 function clone(v){ return JSON.parse(JSON.stringify(v)); }
