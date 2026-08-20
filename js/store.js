@@ -92,8 +92,6 @@ let projectFilePathLabel = "Browser storage (local)";
 // Never put the Supabase service_role/secret key in this file.
 const SUPABASE_CONFIG = {
   url: "https://bqrzjbcrekhuzwxjlrjs.supabase.co",
-  // Use the Supabase Publishable key (sb_publishable_...) for new projects,
-  // or the legacy anon key if your project still uses legacy API keys.
   anonKey: "sb_publishable_WrH75xXW4RIfPBp8X6wriw_TPvCee4J"
 };
 
@@ -201,7 +199,9 @@ async function loadSupabaseProject(){
   }
 }
 async function saveProjectToSupabase(){
-  if(!supabaseConfigured() || !supabaseSession?.access_token || !project)return false;
+  if(!supabaseConfigured()) { if(window.showToast) showToast("Supabase is not configured."); return false; }
+  if(!supabaseSession?.access_token) { if(window.showToast) showToast("Supabase save requires signing in first."); return false; }
+  if(!project) return false;
   if(supabaseSaveInProgress){supabaseSavePending=true;return false;}
   supabaseSaveInProgress=true; supabaseSavePending=false;
   try{

@@ -91,8 +91,8 @@ let projectFilePathLabel = "Browser storage (local)";
 // Paste your Supabase Project URL and the public anon/publishable key here.
 // Never put the Supabase service_role/secret key in this file.
 const SUPABASE_CONFIG = {
-  url: "https://YOUR-PROJECT.supabase.co",
-  anonKey: "YOUR_SUPABASE_PUBLISHABLE_OR_ANON_KEY"
+  url: "https://bqrzjbcrekhuzwxjlrjs.supabase.co",
+  anonKey: "sb_publishable_WrH75xXW4RIfPBp8X6wriw_TPvCee4J"
 };
 
 const SUPABASE_PROJECT_ID = "ERP-DESIGN-001";
@@ -199,7 +199,9 @@ async function loadSupabaseProject(){
   }
 }
 async function saveProjectToSupabase(){
-  if(!supabaseConfigured() || !supabaseSession?.access_token || !project)return false;
+  if(!supabaseConfigured()) { if(window.showToast) showToast("Supabase is not configured."); return false; }
+  if(!supabaseSession?.access_token) { if(window.showToast) showToast("Supabase save requires signing in first."); return false; }
+  if(!project) return false;
   if(supabaseSaveInProgress){supabaseSavePending=true;return false;}
   supabaseSaveInProgress=true; supabaseSavePending=false;
   try{

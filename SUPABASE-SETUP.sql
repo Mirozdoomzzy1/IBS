@@ -128,6 +128,12 @@ on public.project_revisions for select
 to authenticated
 using (true);
 
+-- Explicit PostgREST privileges for the authenticated role.
+-- RLS policies above control which rows may be accessed.
+grant usage on schema public to authenticated;
+grant select, insert, update on table public.projects to authenticated;
+grant select on table public.project_revisions to authenticated;
+
 -- ============================================================
 -- 4. AUTOMATIC BACKUP OF PREVIOUS VERSION
 -- ============================================================

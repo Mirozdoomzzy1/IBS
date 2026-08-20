@@ -84,7 +84,7 @@ You should first see:
 
 **Sign in to your project**
 
-Sign in with a Supabase Auth user.
+Sign in with a Supabase Auth user. **The publishable key alone does not authenticate a user; the app must have an active Supabase Auth session before RLS allows saving.**
 
 After login, the app loads the shared project from Supabase.
 
