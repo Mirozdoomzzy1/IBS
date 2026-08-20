@@ -180,7 +180,7 @@ async function supabaseLogout(){
 window.supabaseLogout=supabaseLogout;
 
 async function loadSupabaseProject(){
-  if(!supabaseConfigured() || !supabaseSession?.access_token) return false;
+  if(!supabaseConfigured()) return false;
   try{
     const rows=await supabaseFetch(`/rest/v1/projects?id=eq.${encodeURIComponent(SUPABASE_PROJECT_ID)}&select=id,data,revision,updated_at,updated_by`,{
       method:"GET",headers:{Accept:"application/json"}
@@ -200,7 +200,7 @@ async function loadSupabaseProject(){
 }
 async function saveProjectToSupabase(){
   if(!supabaseConfigured()) { if(window.showToast) showToast("Supabase is not configured."); return false; }
-  if(!supabaseSession?.access_token) { if(window.showToast) showToast("Supabase save requires signing in first."); return false; }
+  
   if(!project) return false;
   if(supabaseSaveInProgress){supabaseSavePending=true;return false;}
   supabaseSaveInProgress=true; supabaseSavePending=false;
@@ -244,14 +244,14 @@ async function saveProjectToSupabase(){
   }
 }
 function scheduleSupabaseSave(){
-  if(!supabaseConfigured()||!supabaseSession?.access_token||!project)return;
+  if(!supabaseConfigured()||!project)return;
   supabaseSavePending=true;
   clearTimeout(supabaseSaveTimer);
   supabaseSaveTimer=setTimeout(()=>{supabaseSavePending=false;saveProjectToSupabase();},500);
 }
 function supabaseStatus(){
   if(!supabaseConfigured())return "Supabase is not configured";
-  if(!supabaseSession?.access_token)return "Sign in required";
+  
   if(supabaseSaveInProgress)return "Saving to Supabase…";
   return supabaseLastSavedAt?`Supabase saved ${supabaseLastSavedAt.toLocaleTimeString()} · rev ${supabaseRevision}`:`Supabase connected · rev ${supabaseRevision??"?"}`;
 }
@@ -268,8 +268,10 @@ async function testSupabaseConnection(){
 async function initializeSupabase(){
   if(!supabaseConfigured())return false;
   restoreSupabaseSession();
-  if(!supabaseSession)return false;
-  try{await loadSupabaseAuthUser();return true;}catch(_e){return false;}
+  if(supabaseSession?.access_token){
+    try{await loadSupabaseAuthUser();}catch(_e){}
+  }
+  return true;
 }
 
 function clone(v){ return JSON.parse(JSON.stringify(v)); }

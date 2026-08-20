@@ -1368,7 +1368,8 @@ function currentUser(){
       email:supabaseAuthUser.email
     };
   }
-  return null;
+  // Shared-workspace mode: no login is required. Supabase RLS controls access.
+  return {id:null,username:"shared-user",displayName:"Shared User",role:"Administrator",active:true,email:null};
 }
 async function logout(){
   if(typeof supabaseLogout==="function") await supabaseLogout();
@@ -1472,11 +1473,11 @@ document.addEventListener("DOMContentLoaded",async()=>{
     normalizeProject();
     securityDefaults();
     if(typeof initializeSupabase==="function" && supabaseConfigured()){
-      const authenticated=await initializeSupabase();
-      if(authenticated){
+      const connected=await initializeSupabase();
+      if(connected){
         const loaded=await loadSupabaseProject();
         if(!loaded){
-          // First authenticated run: create the shared project row.
+          // First run: create the shared project row.
           await saveProjectToSupabase();
         }
       }

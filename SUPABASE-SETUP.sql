@@ -97,8 +97,11 @@ create index if not exists project_revisions_project_idx
   on public.project_revisions(project_id, revision desc);
 
 -- ============================================================
--- 3. ROW LEVEL SECURITY
+-- 3. ROW LEVEL SECURITY — SHARED WORKSPACE
 -- ============================================================
+-- This project is intentionally a shared GitHub-Pages workspace: any visitor
+-- with the public Supabase key can read/write the single project row.
+-- Never store a service_role/secret key in the frontend.
 alter table public.projects enable row level security;
 alter table public.project_revisions enable row level security;
 
@@ -106,33 +109,35 @@ drop policy if exists "authenticated can read projects" on public.projects;
 drop policy if exists "authenticated can insert projects" on public.projects;
 drop policy if exists "authenticated can update projects" on public.projects;
 drop policy if exists "authenticated can read revisions" on public.project_revisions;
+drop policy if exists "public shared project read" on public.projects;
+drop policy if exists "public shared project insert" on public.projects;
+drop policy if exists "public shared project update" on public.projects;
+drop policy if exists "public shared revisions read" on public.project_revisions;
 
-create policy "authenticated can read projects"
+create policy "public shared project read"
 on public.projects for select
-to authenticated
-using (true);
+to anon, authenticated
+using (id = 'ERP-DESIGN-001');
 
-create policy "authenticated can insert projects"
+create policy "public shared project insert"
 on public.projects for insert
-to authenticated
-with check (true);
+to anon, authenticated
+with check (id = 'ERP-DESIGN-001');
 
-create policy "authenticated can update projects"
+create policy "public shared project update"
 on public.projects for update
-to authenticated
-using (true)
-with check (true);
+to anon, authenticated
+using (id = 'ERP-DESIGN-001')
+with check (id = 'ERP-DESIGN-001');
 
-create policy "authenticated can read revisions"
+create policy "public shared revisions read"
 on public.project_revisions for select
-to authenticated
-using (true);
+to anon, authenticated
+using (project_id = 'ERP-DESIGN-001');
 
--- Explicit PostgREST privileges for the authenticated role.
--- RLS policies above control which rows may be accessed.
-grant usage on schema public to authenticated;
-grant select, insert, update on table public.projects to authenticated;
-grant select on table public.project_revisions to authenticated;
+grant usage on schema public to anon, authenticated;
+grant select, insert, update on table public.projects to anon, authenticated;
+grant select on table public.project_revisions to anon, authenticated;
 
 -- ============================================================
 -- 4. AUTOMATIC BACKUP OF PREVIOUS VERSION
@@ -190,7 +195,7 @@ for each row execute function public.ibs_cleanup_project_revisions();
 -- The website can also create it automatically on first save.
 -- Leave this commented unless you want an explicit initial row.
 -- insert into public.projects(id, data, revision)
--- values ('ibs-main-project', '{}'::jsonb, 0)
+-- values ('ERP-DESIGN-001', '{}'::jsonb, 0)
 -- on conflict (id) do nothing;
 
 -- ============================================================
