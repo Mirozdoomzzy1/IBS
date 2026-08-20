@@ -77,7 +77,7 @@ function installSupabaseDiagnosticPanel(){
       <button id="supabaseDiagSave" style="padding:7px 10px;border:0;border-radius:7px;cursor:pointer">Force Save</button>
     </div>
   `;
-  document.documentElement.appendChild(panel);
+  (document.body || document.documentElement).appendChild(panel);
 
   panel.querySelector("#supabaseDiagTest").onclick=()=>diagnosticSupabaseTest();
   panel.querySelector("#supabaseDiagSave").onclick=async()=>{
@@ -108,6 +108,22 @@ function installSupabaseDiagnosticPanel(){
     panel.querySelector("#supabaseDiagError").textContent=
       d.lastError?`Error: ${d.lastError}`:"";
   });
+
+  const renderCurrent=()=>{
+    const d=window.SUPABASE_DIAGNOSTIC||{};
+    panel.querySelector("#supabaseDiagState").textContent=d.state==="saved"?"✅ SAVED":d.state==="connected"?"🟢 CONNECTED":d.state==="saving"?"🟡 SAVING":d.state==="error"?"🔴 ERROR":"🔵 "+String(d.state||"");
+    panel.querySelector("#supabaseDiagMessage").textContent=d.message||"";
+    panel.querySelector("#supabaseDiagRevision").textContent=d.revision!=null?`Revision: ${d.revision}`:"Revision: —";
+    panel.querySelector("#supabaseDiagError").textContent=d.lastError?`Error: ${d.lastError}`:"";
+  };
+  renderCurrent();
+  const keepAlive=new MutationObserver(()=>{
+    if(!document.getElementById("supabaseDiagnosticPanel")){
+      (document.body || document.documentElement).appendChild(panel);
+      renderCurrent();
+    }
+  });
+  keepAlive.observe(document.documentElement,{childList:true,subtree:true});
 }
 if(document.readyState==="loading"){
   document.addEventListener("DOMContentLoaded",installSupabaseDiagnosticPanel);
