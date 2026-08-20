@@ -1,4 +1,120 @@
 
+
+/* ============================================================
+   SUPABASE VISIBLE DIAGNOSTICS
+   ============================================================ */
+window.SUPABASE_DIAGNOSTIC = {
+  state: "starting",
+  message: "Starting Supabase…",
+  revision: null,
+  lastSaved: null,
+  lastError: null
+};
+
+function setSupabaseDiagnostic(state,message,extra={}){
+  window.SUPABASE_DIAGNOSTIC = {
+    ...window.SUPABASE_DIAGNOSTIC,
+    state,
+    message,
+    ...extra
+  };
+  document.dispatchEvent(new CustomEvent("supabase-diagnostic",{detail:window.SUPABASE_DIAGNOSTIC}));
+  console.log("[SUPABASE]",state,message,extra);
+}
+
+async function diagnosticSupabaseTest(){
+  setSupabaseDiagnostic("testing","Testing Supabase connection…");
+  try{
+    if(typeof supabaseConfigured!=="function" || !supabaseConfigured()){
+      throw new Error("Supabase configuration is missing.");
+    }
+    const url = `${SUPABASE_CONFIG.url}/rest/v1/projects?id=eq.${encodeURIComponent(SUPABASE_PROJECT_ID)}&select=id,revision`;
+    const response = await fetch(url,{
+      method:"GET",
+      headers:{
+        apikey:SUPABASE_CONFIG.anonKey,
+        Accept:"application/json"
+      }
+    });
+    const text=await response.text();
+    if(!response.ok) throw new Error(`HTTP ${response.status}: ${text}`);
+    let data=[];
+    try{data=JSON.parse(text)}catch{}
+    setSupabaseDiagnostic("connected",data.length
+      ? `Connected ✓ — revision ${data[0].revision}`
+      : "Connected ✓ — project row does not exist yet",{
+        revision:data[0]?.revision ?? null,
+        lastError:null
+      });
+    return true;
+  }catch(e){
+    setSupabaseDiagnostic("error","Supabase connection failed",{
+      lastError:String(e?.message||e)
+    });
+    return false;
+  }
+}
+window.diagnosticSupabaseTest=diagnosticSupabaseTest;
+
+function installSupabaseDiagnosticPanel(){
+  if(document.getElementById("supabaseDiagnosticPanel")) return;
+  const panel=document.createElement("div");
+  panel.id="supabaseDiagnosticPanel";
+  panel.style.cssText=[
+    "position:fixed","right:18px","bottom:18px","z-index:999999",
+    "width:330px","padding:14px","border-radius:12px",
+    "background:#111827","color:#fff","font:13px Arial",
+    "box-shadow:0 8px 30px rgba(0,0,0,.3)"
+  ].join(";");
+  panel.innerHTML=`
+    <div style="font-weight:700;font-size:14px;margin-bottom:8px">☁ Supabase Save Status</div>
+    <div id="supabaseDiagState">Starting…</div>
+    <div id="supabaseDiagMessage" style="margin-top:5px;opacity:.85"></div>
+    <div id="supabaseDiagRevision" style="margin-top:5px;opacity:.85"></div>
+    <div id="supabaseDiagError" style="margin-top:7px;color:#fca5a5;white-space:pre-wrap"></div>
+    <div style="display:flex;gap:7px;margin-top:10px">
+      <button id="supabaseDiagTest" style="padding:7px 10px;border:0;border-radius:7px;cursor:pointer">Test Supabase</button>
+      <button id="supabaseDiagSave" style="padding:7px 10px;border:0;border-radius:7px;cursor:pointer">Force Save</button>
+    </div>
+  `;
+  document.body.appendChild(panel);
+
+  panel.querySelector("#supabaseDiagTest").onclick=()=>diagnosticSupabaseTest();
+  panel.querySelector("#supabaseDiagSave").onclick=async()=>{
+    setSupabaseDiagnostic("saving","Force saving…");
+    try{
+      if(typeof saveProjectToSupabase!=="function") throw new Error("saveProjectToSupabase() is not available.");
+      const ok=await saveProjectToSupabase();
+      if(ok) setSupabaseDiagnostic("saved","Saved to Supabase ✓",{
+        revision:window.SUPABASE_DIAGNOSTIC.revision,
+        lastSaved:new Date().toISOString(),
+        lastError:null
+      });
+    }catch(e){
+      setSupabaseDiagnostic("error","Save failed",{
+        lastError:String(e?.message||e)
+      });
+    }
+  };
+
+  document.addEventListener("supabase-diagnostic",e=>{
+    const d=e.detail||{};
+    panel.querySelector("#supabaseDiagState").textContent=
+      d.state==="saved"?"✅ SAVED":d.state==="connected"?"🟢 CONNECTED":
+      d.state==="saving"?"🟡 SAVING":d.state==="error"?"🔴 ERROR":"🔵 "+String(d.state||"");
+    panel.querySelector("#supabaseDiagMessage").textContent=d.message||"";
+    panel.querySelector("#supabaseDiagRevision").textContent=
+      d.revision!=null?`Revision: ${d.revision}`:"Revision: —";
+    panel.querySelector("#supabaseDiagError").textContent=
+      d.lastError?`Error: ${d.lastError}`:"";
+  });
+}
+if(document.readyState==="loading"){
+  document.addEventListener("DOMContentLoaded",installSupabaseDiagnosticPanel);
+}else{
+  installSupabaseDiagnosticPanel();
+}
+
 const DEFAULT_PROJECT = {
   version: 2,
   project: {
@@ -290,11 +406,11 @@ async function saveProjectToSupabase(){
     projectFilePathLabel="Supabase database";
     localStorage.setItem("enterpriseSystemDesignStudio",JSON.stringify(project));
 
-    if(window.showToast)showToast(`☁ Saved to Supabase ✓ (revision ${supabaseRevision})`);
+    if(window.showToast)setSupabaseDiagnostic("saved",`Saved to Supabase ✓`,{revision:supabaseRevision,lastSaved:new Date().toISOString(),lastError:null}); showToast(`☁ Saved to Supabase ✓ (revision ${supabaseRevision})`);
     return true;
 
   }catch(e){
-    console.error("Supabase project save failed",e);
+    setSupabaseDiagnostic("error","Supabase save failed",{lastError:String(e?.message||e)}); console.error("Supabase project save failed",e);
     if(window.showToast){
       const msg=String(e?.message||e);
       showToast("☁ Save failed: "+msg);
