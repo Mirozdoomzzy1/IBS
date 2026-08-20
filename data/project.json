@@ -217,6 +217,18 @@
       "rule": "",
       "acceptance": "",
       "comments": ""
+    },
+    {
+      "id": "PLAN-024",
+      "moduleId": "PERSONNEL",
+      "title": "plan",
+      "actor": "",
+      "priority": "Medium",
+      "status": "Draft",
+      "description": "",
+      "rule": "",
+      "acceptance": "",
+      "comments": ""
     }
   ],
   "screens": [
