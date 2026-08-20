@@ -1357,10 +1357,23 @@ function securityDefaults(){
   });
 }
 function currentUser(){
-  const a=JSON.parse(localStorage.getItem(AUTH_KEY)||"null");
-  return a && a.username ? project.security?.users?.find(u=>u.username===a.username && u.active) : null;
+  if(typeof supabaseAuthUser!=="undefined" && supabaseAuthUser){
+    const md=supabaseAuthUser.user_metadata||{};
+    return {
+      id:supabaseAuthUser.id,
+      username:md.username||supabaseAuthUser.email?.split("@")[0]||supabaseAuthUser.email,
+      displayName:md.displayName||md.display_name||supabaseAuthUser.email,
+      role:md.role||"Viewer",
+      active:true,
+      email:supabaseAuthUser.email
+    };
+  }
+  return null;
 }
-function logout(){localStorage.removeItem(AUTH_KEY);location.reload();}
+async function logout(){
+  if(typeof supabaseLogout==="function") await supabaseLogout();
+  else location.reload();
+}
 window.logout=logout;
 
 function setView(view,moduleId=null){
@@ -1373,7 +1386,7 @@ function setView(view,moduleId=null){
   state.view=view; state.moduleId=moduleId;
   if(view!=='screens'){state.screenId=null;state.selectedComponentId=null;}
   if(view!=='timeline')state.timelineFilter=null;
-  state.tab='requirements'; render();
+  render();
 }
 function nav(){
   const u=currentUser(); const roleKey={Administrator:'ADMIN',Architect:'ARCH',Designer:'DESIGNER',Viewer:'VIEWER'}; const role=roleKey[u?.role]||'VIEWER';
@@ -1391,12 +1404,19 @@ function nav(){
 function renderLogin(){
   document.body.innerHTML=`<div class="login-shell"><div class="login-orb orb-a"></div><div class="login-orb orb-b"></div><div class="login-card">
     <div class="login-brand"><div class="brand-mark">ES</div><div><b>Enterprise System</b><span>Design Studio</span></div></div>
-    <div class="login-heading"><span class="eyebrow">SECURE WORKSPACE</span><h1>Sign in to your project</h1><p>Only authorized users can access requirements, screens, ERD, architecture and project data.</p></div>
-    <form id="loginForm" class="login-form"><label>Username<input name="username" autocomplete="username" placeholder="Enter username" required></label><label>Password<div class="password-wrap"><input id="loginPassword" name="password" type="password" autocomplete="current-password" placeholder="Enter password" required><button type="button" id="togglePassword">Show</button></div></label><div id="loginError" class="login-error"></div><button class="btn primary login-btn">Sign In</button></form>
-    <div class="demo-credentials"><b>Authorized access</b><span>Use your assigned username and password.</span><span>Credentials are never displayed on this page.</span></div>
-    <div class="login-warning">Prototype security: this static demo stores credentials locally in the browser. For real confidential data, use a TypeScript backend with hashed passwords, sessions/JWT and server-side authorization.</div>
+    <div class="login-heading"><span class="eyebrow">SECURE WORKSPACE</span><h1>Sign in to your project</h1><p>Sign in with your IBS Supabase account. Project data is shared securely through Supabase.</p></div>
+    <form id="loginForm" class="login-form"><label>Email<input name="email" type="email" autocomplete="username" placeholder="name@ibs-company.com" required></label><label>Password<div class="password-wrap"><input id="loginPassword" name="password" type="password" autocomplete="current-password" placeholder="Enter password" required><button type="button" id="togglePassword">Show</button></div></label><div id="loginError" class="login-error"></div><button class="btn primary login-btn">Sign In</button></form>
+    <div class="demo-credentials"><b>Supabase Authentication</b><span>Your account must be created in Supabase Authentication → Users.</span><span>Role can be set in the user's metadata (Administrator, Architect, Designer or Viewer).</span></div>
   </div></div>`;
-  $("#loginForm").onsubmit=e=>{e.preventDefault();securityDefaults();const f=new FormData(e.currentTarget);const u=project.security.users.find(x=>x.username===String(f.get("username")).trim()&&x.password===String(f.get("password"))&&x.active);if(!u){$("#loginError").textContent="Invalid username or password.";return;}localStorage.setItem(AUTH_KEY,JSON.stringify({username:u.username,at:Date.now()}));location.reload();};
+  $("#loginForm").onsubmit=async e=>{
+    e.preventDefault(); const btn=e.currentTarget.querySelector("button.login-btn"); btn.disabled=true;
+    $("#loginError").textContent="";
+    try{
+      const f=new FormData(e.currentTarget);
+      await supabaseLogin(String(f.get("email")).trim(),String(f.get("password")));
+      location.reload();
+    }catch(err){$("#loginError").textContent=String(err.message||err);btn.disabled=false;}
+  };
   $("#togglePassword").onclick=()=>{const i=$("#loginPassword");i.type=i.type==="password"?"text":"password";$("#togglePassword").textContent=i.type==="password"?"Show":"Hide";};
 }
 function hasAccess(permission,moduleId=null){
@@ -1448,23 +1468,18 @@ function render(){
 
 document.addEventListener("DOMContentLoaded",async()=>{
   try {
-    const hadLocal=!!localStorage.getItem("enterpriseSystemDesignStudio");
     loadProject();
     normalizeProject();
     securityDefaults();
-    if(typeof loadSupabaseProject==='function' && supabaseConfigured()){
-      const loaded=await loadSupabaseProject();
-      if(loaded) {
-        normalizeProject();
-        securityDefaults();
-      } else {
-        // First run: seed the cloud database from the current project.
-        saveProject(false);
-        await saveProjectToSupabase();
+    if(typeof initializeSupabase==="function" && supabaseConfigured()){
+      const authenticated=await initializeSupabase();
+      if(authenticated){
+        const loaded=await loadSupabaseProject();
+        if(!loaded){
+          // First authenticated run: create the shared project row.
+          await saveProjectToSupabase();
+        }
       }
-    } else if(!hadLocal && typeof loadWebsiteProject==='function') {
-      const loaded=await loadWebsiteProject();
-      if(loaded && project?.modules?.length){ normalizeProject(); securityDefaults(); }
     }
     installPersistence(); render();
   } catch(err) { console.error(err); const root=document.getElementById('content'); if(root) root.innerHTML='<div class="card"><h2>Design Studio could not start</h2><p>Please reload the page. If this is hosted on GitHub Pages, make sure the repository Pages source is set to the root of the branch.</p><pre style="white-space:pre-wrap;color:#b42318">'+String(err?.stack||err)+'</pre></div>'; }
