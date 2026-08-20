@@ -390,12 +390,13 @@ async function saveProjectToSupabase(){
       );
 
       if(!existing?.length){
+        const dataColumn=await detectSupabaseProjectDataColumn();
         await supabaseFetch("/rest/v1/projects",{
           method:"POST",
           headers:{Prefer:"return=representation"},
           body:JSON.stringify({
             id:SUPABASE_PROJECT_ID,
-            data:project,
+            [dataColumn]:project,
             revision:1
           })
         });
