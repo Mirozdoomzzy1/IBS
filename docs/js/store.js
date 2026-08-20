@@ -11,6 +11,21 @@ window.SUPABASE_DIAGNOSTIC = {
   lastError: null
 };
 
+let supabaseProjectDataColumn = null;
+
+async function detectSupabaseProjectDataColumn(){
+  if(supabaseProjectDataColumn) return supabaseProjectDataColumn;
+  try{
+    await supabaseFetch(`/rest/v1/projects?select=id,project_data,revision&limit=1`,{method:"GET"});
+    supabaseProjectDataColumn="project_data";
+    return supabaseProjectDataColumn;
+  }catch(_e){
+    await supabaseFetch(`/rest/v1/projects?select=id,data,revision&limit=1`,{method:"GET"});
+    supabaseProjectDataColumn="data";
+    return supabaseProjectDataColumn;
+  }
+}
+
 function setSupabaseDiagnostic(state,message,extra={}){
   window.SUPABASE_DIAGNOSTIC = {
     ...window.SUPABASE_DIAGNOSTIC,
@@ -56,6 +71,186 @@ async function diagnosticSupabaseTest(){
 }
 window.diagnosticSupabaseTest=diagnosticSupabaseTest;
 
+function installSupabaseDiagnosticPanel(){
+  if(document.getElementById("supabaseDiagnosticPanel")) return;
+  const panel=document.createElement("div");
+  panel.id="supabaseDiagnosticPanel";
+  panel.style.cssText=[
+    "position:fixed","right:18px","bottom:18px","z-index:999999",
+    "width:330px","padding:14px","border-radius:12px",
+    "background:#111827","color:#fff","font:13px Arial",
+    "box-shadow:0 8px 30px rgba(0,0,0,.3)"
+  ].join(";");
+  panel.innerHTML=`
+    <div style="font-weight:700;font-size:14px;margin-bottom:8px">☁ Supabase Save Status</div>
+    <div id="supabaseDiagState">Starting…</div>
+    <div id="supabaseDiagMessage" style="margin-top:5px;opacity:.85"></div>
+    <div id="supabaseDiagRevision" style="margin-top:5px;opacity:.85"></div>
+    <div id="supabaseDiagError" style="margin-top:7px;color:#fca5a5;white-space:pre-wrap"></div>
+    <div style="display:flex;gap:7px;margin-top:10px">
+      <button id="supabaseDiagTest" style="padding:7px 10px;border:0;border-radius:7px;cursor:pointer">Test Supabase</button>
+      <button id="supabaseDiagSave" style="padding:7px 10px;border:0;border-radius:7px;cursor:pointer">Force Save</button>
+    </div>
+  `;
+  (document.body || document.documentElement).appendChild(panel);
+
+  panel.querySelector("#supabaseDiagTest").onclick=()=>diagnosticSupabaseTest();
+  panel.querySelector("#supabaseDiagSave").onclick=async()=>{
+    setSupabaseDiagnostic("saving","Force saving…");
+    try{
+      if(typeof saveProjectToSupabase!=="function") throw new Error("saveProjectToSupabase() is not available.");
+      const ok=await saveProjectToSupabase();
+      if(ok) setSupabaseDiagnostic("saved","Saved to Supabase ✓",{
+        revision:window.SUPABASE_DIAGNOSTIC.revision,
+        lastSaved:new Date().toISOString(),
+        lastError:null
+      });
+    }catch(e){
+      setSupabaseDiagnostic("error","Save failed",{
+        lastError:String(e?.message||e)
+      });
+    }
+  };
+
+  document.addEventListener("supabase-diagnostic",e=>{
+    const d=e.detail||{};
+    panel.querySelector("#supabaseDiagState").textContent=
+      d.state==="saved"?"✅ SAVED":d.state==="connected"?"🟢 CONNECTED":
+      d.state==="saving"?"🟡 SAVING":d.state==="error"?"🔴 ERROR":"🔵 "+String(d.state||"");
+    panel.querySelector("#supabaseDiagMessage").textContent=d.message||"";
+    panel.querySelector("#supabaseDiagRevision").textContent=
+      d.revision!=null?`Revision: ${d.revision}`:"Revision: —";
+    panel.querySelector("#supabaseDiagError").textContent=
+      d.lastError?`Error: ${d.lastError}`:"";
+  });
+
+  const renderCurrent=()=>{
+    const d=window.SUPABASE_DIAGNOSTIC||{};
+    panel.querySelector("#supabaseDiagState").textContent=d.state==="saved"?"✅ SAVED":d.state==="connected"?"🟢 CONNECTED":d.state==="saving"?"🟡 SAVING":d.state==="error"?"🔴 ERROR":"🔵 "+String(d.state||"");
+    panel.querySelector("#supabaseDiagMessage").textContent=d.message||"";
+    panel.querySelector("#supabaseDiagRevision").textContent=d.revision!=null?`Revision: ${d.revision}`:"Revision: —";
+    panel.querySelector("#supabaseDiagError").textContent=d.lastError?`Error: ${d.lastError}`:"";
+  };
+  renderCurrent();
+  const keepAlive=new MutationObserver(()=>{
+    if(!document.getElementById("supabaseDiagnosticPanel")){
+      (document.body || document.documentElement).appendChild(panel);
+      renderCurrent();
+    }
+  });
+  keepAlive.observe(document.documentElement,{childList:true,subtree:true});
+}
+if(document.readyState==="loading"){
+  document.addEventListener("DOMContentLoaded",installSupabaseDiagnosticPanel);
+}else{
+  installSupabaseDiagnosticPanel();
+}
+
+const DEFAULT_PROJECT = {
+  version: 2,
+  project: {
+    id: "ERP-DESIGN-001",
+    name: "Enterprise Management System",
+    description: "Business-to-technical design studio for the ERP program",
+    owner: "Architecture Team"
+  },
+  modules: [
+    {id:"PERSONNEL", name:"Personnel", icon:"👥", color:"blue", description:"Personnel policies, qualifications, employment history and HR operations."},
+    {id:"EMPLOYEE", name:"Employee", icon:"🧑", color:"blue", description:"Employee master profile, employment data, documents, status and lifecycle."},
+    {id:"CLIENT", name:"Client", icon:"🏢", color:"green", description:"Client master data, contracts, contacts, services and client lifecycle."},
+    {id:"MEDICAL", name:"Medical", icon:"♥", color:"green", description:"Medical records, examinations, leaves, insurance and health workflows."},
+    {id:"OPERATION", name:"Operation", icon:"⚙", color:"orange", description:"Operations, assignments, tasks, schedules and service delivery."},
+    {id:"PAYROLL", name:"Payroll", icon:"$", color:"green", description:"Payroll periods, salaries, allowances, deductions and payslips."},
+    {id:"FINANCE", name:"Finance", icon:"$", color:"orange", description:"Accounts, transactions, payments, invoices and expenses."},
+    {id:"LEGAL", name:"Legal", icon:"⚖", color:"red", description:"Contracts, legal cases, documents and compliance."},
+    {id:"TRANSFER", name:"Transfer", icon:"⇄", color:"blue", description:"Transfer requests, approvals, movement and history."},
+    {id:"COST", name:"Cost", icon:"▣", color:"purple", description:"Cost centers, cost items, allocation and reporting."},
+    {id:"GENERAL", name:"General", icon:"▤", color:"cyan", description:"Company settings, master data, holidays and announcements."},
+    {id:"USER", name:"User & Access", icon:"🔐", color:"purple", description:"Users, roles, privileges, permissions, navigation, authentication and access control."},
+    {id:"TICKETING", name:"Ticketing", icon:"🎫", color:"orange", description:"Tickets, assignments, priorities, comments, SLAs, escalation and resolution."},
+    {id:"ARCHIVE", name:"Archive", icon:"🗄", color:"cyan", description:"Archived documents, records, retention, retrieval and audit history."}
+  ],
+  requirements: [
+    {id:"PER-EMP-001", moduleId:"PERSONNEL", title:"Create employee", actor:"HR Officer", priority:"High", status:"Approved", description:"Authorized HR users can create an employee record.", rule:"Employee number must be unique.", acceptance:"Employee is created only when required fields and references are valid."},
+    {id:"PER-EMP-002", moduleId:"PERSONNEL", title:"Update employee", actor:"HR Officer", priority:"High", status:"Draft", description:"Authorized HR users can update employee master information.", rule:"Only active employees may be updated.", acceptance:"Changes are audited."}
+  ],
+  screens: [
+    {id:"SCR-PER-001", moduleId:"PERSONNEL", name:"Employee List", type:"List", status:"Draft", description:"Search, filter and open employee records.", components:[
+      {id:"c1",type:"search",label:"Search Employee",dataType:"string",required:false},
+      {id:"c2",type:"table",label:"Employees",dataType:"table",required:false},
+      {id:"c3",type:"button",label:"New Employee",dataType:"action",required:false}
+    ]},
+    {id:"SCR-PER-002", moduleId:"PERSONNEL", name:"Employee Form", type:"Form", status:"Draft", description:"Create and edit employee master data.", components:[
+      {id:"c4",type:"input",label:"Employee Number",dataType:"string",required:true,entity:"EMPLOYEE",field:"EMPLOYEE_NO"},
+      {id:"c5",type:"input",label:"First Name",dataType:"string",required:true,entity:"EMPLOYEE",field:"FIRST_NAME"},
+      {id:"c6",type:"input",label:"Last Name",dataType:"string",required:true,entity:"EMPLOYEE",field:"LAST_NAME"},
+      {id:"c7",type:"select",label:"Department",dataType:"number",required:true,entity:"EMPLOYEE",field:"DEPARTMENT_ID"}
+    ]}
+  ],
+  entities: [
+    {id:"EMPLOYEE", name:"EMPLOYEE", moduleId:"PERSONNEL", x:380, y:170, fields:[
+      {name:"EMPLOYEE_ID",type:"NUMBER(19)",pk:true,fk:false,nullable:false},
+      {name:"EMPLOYEE_NO",type:"VARCHAR2(20)",pk:false,fk:false,nullable:false,unique:true},
+      {name:"FIRST_NAME",type:"VARCHAR2(100)",pk:false,fk:false,nullable:false},
+      {name:"LAST_NAME",type:"VARCHAR2(100)",pk:false,fk:false,nullable:false},
+      {name:"EMAIL",type:"VARCHAR2(150)",pk:false,fk:false,nullable:true},
+      {name:"DEPARTMENT_ID",type:"NUMBER(19)",pk:false,fk:true,nullable:false},
+      {name:"POSITION_ID",type:"NUMBER(19)",pk:false,fk:true,nullable:false}
+    ]},
+    {id:"DEPARTMENT", name:"DEPARTMENT", moduleId:"GENERAL", x:60, y:70, fields:[
+      {name:"DEPARTMENT_ID",type:"NUMBER(19)",pk:true,fk:false,nullable:false},
+      {name:"DEPARTMENT_NAME",type:"VARCHAR2(120)",pk:false,fk:false,nullable:false}
+    ]},
+    {id:"POSITION", name:"POSITION", moduleId:"GENERAL", x:60, y:360, fields:[
+      {name:"POSITION_ID",type:"NUMBER(19)",pk:true,fk:false,nullable:false},
+      {name:"DEPARTMENT_ID",type:"NUMBER(19)",pk:false,fk:true,nullable:false},
+      {name:"POSITION_NAME",type:"VARCHAR2(120)",pk:false,fk:false,nullable:false}
+    ]},
+    {id:"CLIENT", name:"CLIENT", moduleId:"GENERAL", x:690, y:170, fields:[
+      {name:"CLIENT_ID",type:"NUMBER(19)",pk:true,fk:false,nullable:false},
+      {name:"CLIENT_CODE",type:"VARCHAR2(30)",pk:false,fk:false,nullable:false,unique:true},
+      {name:"CLIENT_NAME",type:"VARCHAR2(200)",pk:false,fk:false,nullable:false},
+      {name:"EMAIL",type:"VARCHAR2(150)",pk:false,fk:false,nullable:true}
+    ]}
+  ],
+  relations: [
+    {id:"REL-001",from:"DEPARTMENT",to:"EMPLOYEE",fromField:"DEPARTMENT_ID",toField:"DEPARTMENT_ID",cardinality:"1:N"},
+    {id:"REL-002",from:"POSITION",to:"EMPLOYEE",fromField:"POSITION_ID",toField:"POSITION_ID",cardinality:"1:N"}
+  ],
+  apis: [
+    {id:"API-PER-001",moduleId:"PERSONNEL",method:"POST",path:"/api/personnel/employees",name:"Create Employee",permission:"EMPLOYEE.CREATE",status:"Draft",description:"Create an employee after validation and authorization.",inputs:"employeeNo, firstName, lastName, email, departmentId, positionId",rules:"EmployeeNo required and unique; Department active; Position active",logic:"Authenticate → authorize → validate → verify references → insert → audit → return 201."},
+    {id:"API-PER-002",moduleId:"PERSONNEL",method:"GET",path:"/api/personnel/employees",name:"List Employees",permission:"EMPLOYEE.VIEW",status:"Draft",description:"Search and paginate employees.",inputs:"q, departmentId, page, pageSize",rules:"User can only access permitted employee scope.",logic:"Authenticate → authorize → query filters → paginate → return 200."}
+  ],
+  timeline: [],
+  logic: [
+    {id:"LOGIC-PER-001",moduleId:"PERSONNEL",name:"Create Employee Workflow",trigger:"POST /api/personnel/employees",steps:["Authenticate user","Check EMPLOYEE.CREATE permission","Validate request","Check employee number uniqueness","Check department and position","Insert EMPLOYEE","Write audit log","Return 201 Created"]}
+  ],
+  settings: {autosave:true, gridSize:24, showHints:true}
+};
+
+let project = null;
+let saveTimer = null;
+let lastSavedAt = null;
+let projectFileHandle = null;
+let projectFilePathLabel = "Browser storage (local)";
+
+// ===== Supabase cloud database =====
+// Paste your Supabase Project URL and the public anon/publishable key here.
+// Never put the Supabase service_role/secret key in this file.
+const SUPABASE_CONFIG = {
+  url: "https://bqrzjbcrekhuzwxjlrjs.supabase.co",
+  anonKey: "sb_publishable_WrH75xXW4RIfPBp8X6wriw_TPvCee4J"
+};
+
+const SUPABASE_PROJECT_ID = "ERP-DESIGN-001";
+const SUPABASE_SESSION_KEY = "ibs_supabase_session";
+let supabaseSaveTimer = null;
+let supabaseSaveInProgress = false;
+let supabaseSavePending = false;
+let supabaseLastSavedAt = null;
+let supabaseRevision = null;
+let supabaseAuthUser = null;
+let supabaseSession = null;
 
 function supabaseConfigured(){
   return /^https:\/\/[^\s]+\.supabase\.co$/.test(SUPABASE_CONFIG.url||"") &&
@@ -140,12 +335,13 @@ window.supabaseLogout=supabaseLogout;
 async function loadSupabaseProject(){
   if(!supabaseConfigured()) return false;
   try{
+    const dataColumn=await detectSupabaseProjectDataColumn();
     const rows=await supabaseFetch(
-      `/rest/v1/projects?id=eq.${encodeURIComponent(SUPABASE_PROJECT_ID)}&select=id,data,revision`,
+      `/rest/v1/projects?id=eq.${encodeURIComponent(SUPABASE_PROJECT_ID)}&select=id,${dataColumn},revision`,
       {method:"GET",headers:{Accept:"application/json"}}
     );
     if(!Array.isArray(rows)||!rows.length)return false;
-    project=rows[0].data;
+    project=rows[0][dataColumn];
     normalizeProject();
     supabaseRevision=Number(rows[0].revision||0);
     projectFilePathLabel="Supabase database";
@@ -221,7 +417,7 @@ async function saveProjectToSupabase(){
       {
         method:"PATCH",
         headers:{Prefer:"return=representation"},
-        body:JSON.stringify({data:project,revision:next})
+        body:JSON.stringify({[await detectSupabaseProjectDataColumn()]:project,revision:next})
       }
     );
 

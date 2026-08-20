@@ -44,10 +44,7 @@ const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const esc = s => String(s ?? "").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));
 const uid = p => p+"-"+Date.now().toString(36)+"-"+Math.random().toString(36).slice(2,6);
-function metric(label,value,icon){
-  return `<div class="card metric"><span class="metric-icon">${esc(icon||"•")}</span><div class="number">${esc(value)}</div><div class="label">${esc(label)}</div></div>`;
-}
-
+function metric(label,value,icon=""){ return `<div class="metric card"><div class="metric-icon">${esc(icon)}</div><div class="number">${esc(value)}</div><div class="label">${esc(label)}</div></div>`; }
 function isoDate(value){
   const d=value instanceof Date ? new Date(value.getTime()) : new Date(value);
   if(Number.isNaN(d.getTime())) return '';
@@ -957,18 +954,12 @@ function renderERD(){
       ${entities.map(e=>erdTable(e)).join('') || '<div class="empty">No entities for this selection.</div>'}</div>
     <div class="erd-relations-panel"><div class="card-title"><div><h2>Relationships</h2><span class="muted small-text">Edit the relationship definition or delete it.</span></div></div>
       ${relationRows.length?`<div class="relation-grid">${relationRows.map(r=>{const a=project.entities.find(e=>e.id===r.from),b=project.entities.find(e=>e.id===r.to);return `<div class="relation-row"><span class="relation-table">${esc(a?.name||r.from)}</span><span class="relation-field">${esc(r.fromField||'PK')}</span><span class="relation-arrow">→ <b>${esc(r.cardinality||'1:N')}</b> →</span><span class="relation-table">${esc(b?.name||r.to)}</span><span class="relation-field">${esc(r.toField||'FK')}</span><button class="icon-btn" data-action="edit-relation" data-id="${r.id}">✎</button><button class="icon-btn danger" data-action="delete-relation" data-id="${r.id}">×</button></div>`}).join('')}</div>`:'<div class="empty">No relationships yet. Use Connect Tables or + Relationship.</div>'}</div>`;
-  const erdFilter=$('#erdFilter');
-  const erdConnect=$('#erdConnectCommand');
-  if(erdFilter) erdFilter.onchange=e=>{state.erdModule=e.target.value;renderERD()};
-  if(erdConnect) erdConnect.onclick=()=>{ if(state.erdConnectFrom){state.erdConnectFrom=null;renderERD();showToast('Connection cancelled');} else {showToast('Click ⌁ on a table to choose the source, then click the target table.');} };
-  const erdCompact=$('#erdCompactCommand');
-  if(erdCompact) erdCompact.onclick=()=>{state.erdCompact=!state.erdCompact;renderERD();showToast(state.erdCompact?'Compact table view enabled':'Standard table view enabled')};
-  const erdArrange=$('#erdArrangeCommand');
-  if(erdArrange) erdArrange.onclick=()=>{autoArrangeERD(entities);saveProject(false);renderERD();showToast('Tables arranged into a clean grid')};
-  const erdZoomOut=$('#erdZoomOut');
-  if(erdZoomOut) erdZoomOut.onclick=()=>{state.erdZoom=Math.max(70,state.erdZoom-10);const c=$('#erdCanvas');if(c)c.style.zoom=state.erdZoom/100;const z=$('#erdZoomLabel');if(z)z.textContent=state.erdZoom+'%';drawRelations(entities,false)};
-  const erdZoomIn=$('#erdZoomIn');
-  if(erdZoomIn) erdZoomIn.onclick=()=>{state.erdZoom=Math.min(130,state.erdZoom+10);const c=$('#erdCanvas');if(c)c.style.zoom=state.erdZoom/100;const z=$('#erdZoomLabel');if(z)z.textContent=state.erdZoom+'%';drawRelations(entities,false)};
+  $('#erdFilter').onchange=e=>{state.erdModule=e.target.value;renderERD()};
+  $('#erdConnectCommand').onclick=()=>{ if(state.erdConnectFrom){state.erdConnectFrom=null;renderERD();showToast('Connection cancelled');} else {showToast('Click ⌁ on a table to choose the source, then click the target table.');} };
+  $('#erdCompactCommand').onclick=()=>{state.erdCompact=!state.erdCompact;renderERD();showToast(state.erdCompact?'Compact table view enabled':'Standard table view enabled')};
+  $('#erdArrangeCommand').onclick=()=>{autoArrangeERD(entities);saveProject(false);renderERD();showToast('Tables arranged into a clean grid')};
+  $('#erdZoomOut').onclick=()=>{state.erdZoom=Math.max(70,state.erdZoom-10);$('#erdCanvas').style.zoom=state.erdZoom/100;$('#erdZoomLabel').textContent=state.erdZoom+'%';drawRelations(entities,false)};
+  $('#erdZoomIn').onclick=()=>{state.erdZoom=Math.min(130,state.erdZoom+10);$('#erdCanvas').style.zoom=state.erdZoom/100;$('#erdZoomLabel').textContent=state.erdZoom+'%';drawRelations(entities,false)};
   $('#erdCanvas').style.zoom=state.erdZoom/100;
   bindERDInteractions(false,entities);
   drawRelations(entities,false);
@@ -1494,7 +1485,7 @@ document.addEventListener("DOMContentLoaded",async()=>{
     }
     installPersistence(); render();
   } catch(err) { console.error(err); const root=document.getElementById('content'); if(root) root.innerHTML='<div class="card"><h2>Design Studio could not start</h2><p>Please reload the page. If this is hosted on GitHub Pages, make sure the repository Pages source is set to the root of the branch.</p><pre style="white-space:pre-wrap;color:#b42318">'+String(err?.stack||err)+'</pre></div>'; }
-  $("#importFile").onchange=e=>{if(e.target.files[0])importProject(e.target.files[0])};
+  const importFile=$("#importFile"); if(importFile) importFile.onchange=e=>{if(e.target.files[0])importProject(e.target.files[0])};
   const menu=$("#mobileMenuBtn"), backdrop=$("#mobileNavBackdrop");
   const closeMobileNav=()=>document.body.classList.remove("mobile-nav-open");
   if(menu) menu.onclick=()=>document.body.classList.toggle("mobile-nav-open");

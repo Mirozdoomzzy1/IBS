@@ -53,6 +53,4 @@
     new MutationObserver(function(){if(!document.getElementById("supabaseStatusFooter")) footer();}).observe(document.documentElement,{childList:true,subtree:true});
   }
   if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",render); else render();
-  // store.js loads after this diagnostic script; test once it is available.
-  setTimeout(function(){ if(typeof window.diagnosticSupabaseTest==="function") window.diagnosticSupabaseTest(); }, 1200);
 })();
