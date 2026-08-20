@@ -4775,7 +4775,13 @@
           "required": false,
           "entityField": "",
           "apiField": "",
-          "comment": ""
+          "comment": "",
+          "helperText": "",
+          "placeholder": "",
+          "defaultValue": "",
+          "visibility": "Always",
+          "readOnly": false,
+          "comments": ""
         },
         {
           "id": "cmp-mt1836jx-q8if",
@@ -4784,7 +4790,13 @@
           "required": false,
           "entityField": "",
           "apiField": "",
-          "comment": ""
+          "comment": "",
+          "helperText": "",
+          "placeholder": "",
+          "defaultValue": "",
+          "visibility": "Always",
+          "readOnly": false,
+          "comments": ""
         }
       ],
       "referenceImages": []
