@@ -111,11 +111,17 @@ function supabaseConfigured(){
     !SUPABASE_CONFIG.anonKey.includes("YOUR_SUPABASE");
 }
 function supabaseHeaders(extra={}, authenticated=true){
-  const headers={apikey:SUPABASE_CONFIG.anonKey,"Content-Type":"application/json",...extra};
-  if(authenticated){
-    const token=supabaseSession?.access_token;
-    if(token) headers.Authorization="Bearer "+token;
-    else if(!SUPABASE_CONFIG.anonKey.startsWith("sb_publishable_")) headers.Authorization="Bearer "+SUPABASE_CONFIG.anonKey;
+  const headers={
+    apikey:SUPABASE_CONFIG.anonKey,
+    "Content-Type":"application/json",
+    Accept:"application/json",
+    ...extra
+  };
+  // A publishable key is NOT a JWT. Supabase's Data API identifies
+  // the anonymous role from the apikey header. Only add Authorization
+  // when we actually have a Supabase Auth user JWT.
+  if(authenticated && supabaseSession?.access_token){
+    headers.Authorization="Bearer "+supabaseSession.access_token;
   }
   return headers;
 }
@@ -182,67 +188,127 @@ window.supabaseLogout=supabaseLogout;
 async function loadSupabaseProject(){
   if(!supabaseConfigured()) return false;
   try{
-    const rows=await supabaseFetch(`/rest/v1/projects?id=eq.${encodeURIComponent(SUPABASE_PROJECT_ID)}&select=id,data,revision,updated_at,updated_by`,{
-      method:"GET",headers:{Accept:"application/json"}
-    });
+    const rows=await supabaseFetch(
+      `/rest/v1/projects?id=eq.${encodeURIComponent(SUPABASE_PROJECT_ID)}&select=id,data,revision`,
+      {method:"GET",headers:{Accept:"application/json"}}
+    );
     if(!Array.isArray(rows)||!rows.length)return false;
     project=rows[0].data;
     normalizeProject();
     supabaseRevision=Number(rows[0].revision||0);
     projectFilePathLabel="Supabase database";
     localStorage.setItem("enterpriseSystemDesignStudio",JSON.stringify(project));
+    supabaseLastSavedAt=new Date();
     return true;
   }catch(e){
     console.error("Supabase project load failed",e);
-    if(window.showToast)showToast("Cloud load failed: "+(e.message||e));
+    if(window.showToast)showToast("☁ Cloud load failed: "+(e.message||e));
     return false;
   }
 }
+
 async function saveProjectToSupabase(){
-  if(!supabaseConfigured()) { if(window.showToast) showToast("Supabase is not configured."); return false; }
-  
+  if(!supabaseConfigured()){
+    if(window.showToast)showToast("☁ Supabase is not configured.");
+    return false;
+  }
   if(!project) return false;
-  if(supabaseSaveInProgress){supabaseSavePending=true;return false;}
-  supabaseSaveInProgress=true; supabaseSavePending=false;
+  if(supabaseSaveInProgress){
+    supabaseSavePending=true;
+    return false;
+  }
+
+  supabaseSaveInProgress=true;
+  supabaseSavePending=false;
+
   try{
+    // Always get the current server revision when we don't know it.
     if(supabaseRevision===null){
-      const rows=await supabaseFetch(`/rest/v1/projects?id=eq.${encodeURIComponent(SUPABASE_PROJECT_ID)}&select=revision`,{method:"GET"});
-      if(rows?.length)supabaseRevision=Number(rows[0].revision||0);
+      const rows=await supabaseFetch(
+        `/rest/v1/projects?id=eq.${encodeURIComponent(SUPABASE_PROJECT_ID)}&select=id,revision`,
+        {method:"GET"}
+      );
+      if(rows?.length) supabaseRevision=Number(rows[0].revision||0);
+      else supabaseRevision=0;
     }
+
     const expected=Number(supabaseRevision||0);
-    const payload={data:project,revision:expected+1,updated_at:new Date().toISOString(),updated_by:supabaseAuthUser?.id||null};
-    const rows=await supabaseFetch(`/rest/v1/projects?id=eq.${encodeURIComponent(SUPABASE_PROJECT_ID)}&revision=eq.${expected}`,{
-      method:"PATCH",headers:{Prefer:"return=representation"},body:JSON.stringify(payload)
-    });
-    if(!Array.isArray(rows)||!rows.length){
-      const exists=await supabaseFetch(`/rest/v1/projects?id=eq.${encodeURIComponent(SUPABASE_PROJECT_ID)}&select=id,revision`,{method:"GET"});
-      if(!exists?.length && expected===0){
-        const created=await supabaseFetch("/rest/v1/projects",{
-          method:"POST",headers:{Prefer:"return=representation"},body:JSON.stringify({id:SUPABASE_PROJECT_ID,data:project,revision:1,updated_by:supabaseAuthUser?.id||null})
+
+    // First-run: no row exists yet.
+    if(expected===0){
+      const existing=await supabaseFetch(
+        `/rest/v1/projects?id=eq.${encodeURIComponent(SUPABASE_PROJECT_ID)}&select=id,revision`,
+        {method:"GET"}
+      );
+
+      if(!existing?.length){
+        await supabaseFetch("/rest/v1/projects",{
+          method:"POST",
+          headers:{Prefer:"return=representation"},
+          body:JSON.stringify({
+            id:SUPABASE_PROJECT_ID,
+            data:project,
+            revision:1
+          })
         });
         supabaseRevision=1;
-      }else{
-        throw new Error(`CONFLICT: This project changed in Supabase (current revision ${exists?.[0]?.revision ?? "unknown"}). Reload the shared project before saving.`);
+        supabaseLastSavedAt=new Date();
+        projectFilePathLabel="Supabase database";
+        if(window.showToast)showToast("☁ Saved to Supabase ✓ (revision 1)");
+        return true;
       }
-    }else{
-      supabaseRevision=expected+1;
+
+      supabaseRevision=Number(existing[0].revision||0);
     }
+
+    // Optimistic concurrency update: only update if nobody changed the row
+    // since our last read.
+    const next=Number(supabaseRevision)+1;
+    const rows=await supabaseFetch(
+      `/rest/v1/projects?id=eq.${encodeURIComponent(SUPABASE_PROJECT_ID)}&revision=eq.${encodeURIComponent(supabaseRevision)}`,
+      {
+        method:"PATCH",
+        headers:{Prefer:"return=representation"},
+        body:JSON.stringify({data:project,revision:next})
+      }
+    );
+
+    if(!Array.isArray(rows)||!rows.length){
+      const current=await supabaseFetch(
+        `/rest/v1/projects?id=eq.${encodeURIComponent(SUPABASE_PROJECT_ID)}&select=id,revision`,
+        {method:"GET"}
+      );
+      const serverRevision=current?.[0]?.revision;
+      if(serverRevision===undefined){
+        throw new Error("The Supabase projects table is not available. Run SUPABASE-SETUP.sql once in Supabase SQL Editor.");
+      }
+      throw new Error(`CONFLICT: Supabase is at revision ${serverRevision}; reload the shared project before saving.`);
+    }
+
+    supabaseRevision=next;
     supabaseLastSavedAt=new Date();
     projectFilePathLabel="Supabase database";
-    if(window.showToast)showToast(`Saved to Supabase ✓ (revision ${supabaseRevision})`);
+    localStorage.setItem("enterpriseSystemDesignStudio",JSON.stringify(project));
+
+    if(window.showToast)showToast(`☁ Saved to Supabase ✓ (revision ${supabaseRevision})`);
     return true;
+
   }catch(e){
     console.error("Supabase project save failed",e);
     if(window.showToast){
-      if(String(e.message||e).startsWith("CONFLICT:")) showToast("⚠️ "+e.message);
-      else showToast("Cloud save failed: "+(e.message||e));
+      const msg=String(e?.message||e);
+      showToast("☁ Save failed: "+msg);
     }
     return false;
   }finally{
     supabaseSaveInProgress=false;
-    if(supabaseSavePending){supabaseSavePending=false;scheduleSupabaseSave();}
+    if(supabaseSavePending){
+      supabaseSavePending=false;
+      scheduleSupabaseSave();
+    }
   }
 }
+
 function scheduleSupabaseSave(){
   if(!supabaseConfigured()||!project)return;
   supabaseSavePending=true;
@@ -273,6 +339,14 @@ async function initializeSupabase(){
   }
   return true;
 }
+
+window.testSupabaseConnection=testSupabaseConnection;
+window.getSupabaseStatus=()=>({
+  configured:supabaseConfigured(),
+  revision:supabaseRevision,
+  lastSaved:supabaseLastSavedAt?.toISOString()||null,
+  projectId:SUPABASE_PROJECT_ID
+});
 
 function clone(v){ return JSON.parse(JSON.stringify(v)); }
 function isoDate(value){
