@@ -77,7 +77,7 @@ function installSupabaseDiagnosticPanel(){
       <button id="supabaseDiagSave" style="padding:7px 10px;border:0;border-radius:7px;cursor:pointer">Force Save</button>
     </div>
   `;
-  document.body.appendChild(panel);
+  document.documentElement.appendChild(panel);
 
   panel.querySelector("#supabaseDiagTest").onclick=()=>diagnosticSupabaseTest();
   panel.querySelector("#supabaseDiagSave").onclick=async()=>{
@@ -440,8 +440,8 @@ function supabaseStatus(){
 async function testSupabaseConnection(){
   if(!supabaseConfigured()){if(window.showToast)showToast("Configure Supabase URL and key first.");return false;}
   try{
-    if(!supabaseSession?.access_token)throw new Error("Sign in first.");
-    await loadSupabaseAuthUser();
+    // Shared-workspace mode intentionally supports anonymous Supabase access.
+    // Do not require an Auth session just to test the Data API / RLS.
     const rows=await supabaseFetch(`/rest/v1/projects?id=eq.${encodeURIComponent(SUPABASE_PROJECT_ID)}&select=id,revision,updated_at`,{method:"GET"});
     if(window.showToast)showToast(rows?.length?`Supabase OK ✓ · revision ${rows[0].revision}`:"Supabase OK ✓ · project row not created yet");
     return true;
