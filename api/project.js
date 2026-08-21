@@ -9,9 +9,9 @@ const cleanDate=v=>v?String(v).slice(0,10):null;
 
 async function loadProject(c){
   const q=async(sql,p=[])=>{const r=await c.query(sql,p);return r.rows};
-  const p=(await q('select id,name,description,owner,updated_at,updated_by,data where id=$1',[PROJECT_ID]))[0];
+  const p=(await q('select id,name,description,owner,updated_at,updated_by from projects where id=$1',[PROJECT_ID]))[0];
   if(!p) return null;
-  const [modules,requirements,screens,components,entities,fields,relations,apis,logic,logicSteps,timeline,references,tests,testSteps,comments,settings]=await Promise.all([
+  const [modules,requirements,screens,components,entities,fields,relations,apis,logic,logicSteps,timeline,references,tests,testSteps,comments,settingsRows,rolesRows,permissionsRows,rolePermissionRows,moduleAccessRows,usersRows]=await Promise.all([
     q('select id,name,icon,color,description,comments from modules where project_id=$1 order by id',[PROJECT_ID]),
     q('select id,module_id as "moduleId",title,actor,priority,status,description,rule,acceptance,comments from requirements where project_id=$1 order by id',[PROJECT_ID]),
     q('select id,module_id as "moduleId",name,type,status,description,oracle_form as "oracleForm",oracle_description as "oracleDescription",comments,saved_at as "savedAt" from screens where project_id=$1 order by id',[PROJECT_ID]),
@@ -34,28 +34,7 @@ async function loadProject(c){
     q('select module_id as "moduleId",role_id as "roleId",allowed from security_module_access where project_id=$1',[PROJECT_ID]),
     q('select id,username,display_name as "displayName",role,active from app_users order by username')
   ]);
-  if(!modules.length && p.data){
-    const legacy=typeof p.data==='string'?JSON.parse(p.data):p.data;
-    if(legacy && typeof legacy==='object'){
-      // One-time migration of the legacy JSON document into normalized tables. No revision snapshots are created.
-      await withTx(async tx=>{
-        await tx.query('delete from modules where project_id=$1',[PROJECT_ID]);
-        await tx.query('delete from requirements where project_id=$1',[PROJECT_ID]);
-        await tx.query('delete from screens where project_id=$1',[PROJECT_ID]);
-        await tx.query('delete from entities where project_id=$1',[PROJECT_ID]);
-        await tx.query('delete from relations where project_id=$1',[PROJECT_ID]);
-        await tx.query('delete from apis where project_id=$1',[PROJECT_ID]);
-        await tx.query('delete from logic_workflows where project_id=$1',[PROJECT_ID]);
-        await tx.query('delete from timeline_tasks where project_id=$1',[PROJECT_ID]);
-        await tx.query('delete from reference_images where project_id=$1',[PROJECT_ID]);
-        await tx.query('delete from testing_cases where project_id=$1',[PROJECT_ID]);
-        await tx.query('delete from security_roles where project_id=$1',[PROJECT_ID]);
-        await tx.query('delete from security_permissions where project_id=$1',[PROJECT_ID]);
-        await syncModules(tx,legacy); await syncRequirements(tx,legacy); await syncScreens(tx,legacy); await syncEntities(tx,legacy); await syncRelations(tx,legacy); await syncApis(tx,legacy); await syncLogic(tx,legacy); await syncTimeline(tx,legacy); await syncReferences(tx,legacy); await syncTesting(tx,legacy); await syncSecurity(tx,legacy); await syncSettings(tx,legacy);
-      });
-      return loadProject(c);
-    }
-  }
+  // Normalized-only storage: never read or migrate a project JSON document.
   const byScreen=new Map(screens.map(s=>[s.id,s]));
   components.forEach(c=>{const s=byScreen.get(c.screen_id);if(s){const {screen_id,component_order,...x}=c;s.components ||= [];s.components.push(x)}});
   const byEntity=new Map(entities.map(e=>[e.id,e]));
@@ -64,13 +43,13 @@ async function loadProject(c){
   logicSteps.forEach(s=>{const l=byLogic.get(s.workflow_id);if(l){l.steps ||= [];l.steps.push(s.stepText);l.stepComments ||= [];l.stepComments.push(s.comments||'')}});
   const byTest=new Map(tests.map(t=>[t.id,t]));
   testSteps.forEach(s=>{const t=byTest.get(s.test_case_id);if(t){t.steps ||= [];t.steps.push({id:s.id,action:s.action,expected:s.expected||'',status:s.status||'Not Run',comments:s.comments||''})}});
-  const roles=settings[1]||[], permissions=settings[2]||[], rolePermissions=settings[3]||[], moduleAccessRows=settings[4]||[], users=settings[5]||[];
+  const settings=settingsRows[0]||null; const roles=rolesRows||[], permissions=permissionsRows||[], rolePermissions=rolePermissionRows||[], users=usersRows||[];
   const securityRoles=roles.map(r=>({id:r.id,name:r.name,description:r.description||''}));
   const securityPermissions=permissions.map(x=>x.code);
   const securityModuleAccess={}; moduleAccessRows.forEach(x=>{securityModuleAccess[x.moduleId] ||= {}; securityModuleAccess[x.moduleId][x.roleId]=x.allowed!==false;});
   const rolePermMap={}; rolePermissions.forEach(x=>{rolePermMap[x.roleId] ||= []; rolePermMap[x.roleId].push(x.permissionId);});
   securityRoles.forEach(r=>r.permissions=(rolePermMap[r.id]||[]).map(id=>permissions.find(x=>x.id===id)?.code).filter(Boolean));
-  const data={version:3,project:{id:p.id,name:p.name,description:p.description||'',owner:p.owner||'',comments:comments.filter(x=>x.objectType==='project'&&x.objectId===p.id)},modules,requirements,screens,entities,relations,apis,logic,timeline,references,tests,comments,settings:settings[0]||{autosave:true,gridSize:24,showHints:true}};
+  const data={version:3,project:{id:p.id,name:p.name,description:p.description||'',owner:p.owner||'',comments:comments.filter(x=>x.objectType==='project'&&x.objectId===p.id)},modules,requirements,screens,entities,relations,apis,logic,timeline,references,tests,comments,settings:settings||{autosave:true,gridSize:24,showHints:true}};
   data.security={users:users.map(u=>({id:u.id,username:u.username,displayName:u.displayName||u.username,role:u.role||'Viewer',active:u.active!==false,comments:''})),roles:securityRoles,permissions:securityPermissions,moduleAccess:securityModuleAccess};
   return {project:data,updated_at:p.updated_at};
 }

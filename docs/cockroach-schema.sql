@@ -6,8 +6,6 @@ CREATE TABLE IF NOT EXISTS projects (
   name STRING NOT NULL,
   description STRING,
   owner STRING,
-  -- Legacy compatibility only; the application never writes project data here.
-  data JSONB NULL,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_by STRING
 );
