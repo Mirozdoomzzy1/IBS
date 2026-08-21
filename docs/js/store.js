@@ -84,10 +84,12 @@ const DEFAULT_PROJECT = {
     {id:"API-PER-002",moduleId:"PERSONNEL",method:"GET",path:"/api/personnel/employees",name:"List Employees",permission:"EMPLOYEE.VIEW",status:"Draft",description:"Search and paginate employees.",inputs:"q, departmentId, page, pageSize",rules:"User can only access permitted employee scope.",logic:"Authenticate → authorize → query filters → paginate → return 200."}
   ],
   timeline: [],
+  tests: [
+    {id:"TEST-PER-001",moduleId:"PERSONNEL",requirementId:"PER-EMP-001",name:"Create employee happy path",type:"Functional",priority:"High",status:"Not Run",preconditions:"Authorized HR user is signed in.",expectedResult:"Employee is created and a success response is returned.",actualResult:"",comments:"",steps:[{id:"TEST-PER-001-S1",action:"Open Employee Form",expected:"Employee form opens",status:"Not Run",comments:""},{id:"TEST-PER-001-S2",action:"Enter valid required data and save",expected:"Employee is created",status:"Not Run",comments:""}]}
+  ],
   logic: [
     {id:"LOGIC-PER-001",moduleId:"PERSONNEL",name:"Create Employee Workflow",trigger:"POST /api/personnel/employees",steps:["Authenticate user","Check EMPLOYEE.CREATE permission","Validate request","Check employee number uniqueness","Check department and position","Insert EMPLOYEE","Write audit log","Return 201 Created"]}
   ],
-  tests: [],
   settings: {autosave:true, gridSize:24, showHints:true}
 };
 
@@ -114,7 +116,12 @@ function apiErrorMessage(status,body){
 }
 async function cockroachFetch(path,options={}){
   if(!supabaseConfigured())throw new Error('Cockroach API is not configured. Edit docs/js/cockroach-config.js.');
-  const r=await fetch(apiUrl(path),{...options,headers:apiHeaders(options.headers||{}),cache:'no-store'});
+  let r;
+  try {
+    r=await fetch(apiUrl(path),{...options,headers:apiHeaders(options.headers||{}),cache:'no-store'});
+  } catch (e) {
+    throw new Error(`Cannot reach the CockroachDB API at ${apiUrl(path)}. Make sure the Vercel deployment contains the /api functions and is deployed successfully. (${e?.message||e})`);
+  }
   const text=await r.text();
   if(!r.ok)throw new Error(apiErrorMessage(r.status,text));
   if(!text)return null; try{return JSON.parse(text)}catch{return text}
@@ -142,41 +149,46 @@ async function loadSupabaseProject(){
     const r=await cockroachFetch('/project',{method:'GET'});
     if(!r?.project)throw new Error('CockroachDB returned no project data.');
     project=r.project; normalizeProject();
-    supabaseRevision=Number(r.revision||0);supabaseLastSavedAt=r.updated_at?new Date(r.updated_at):null;
+    supabaseLastSavedAt=r.updated_at?new Date(r.updated_at):null;
     lastPersistedProjectJson=JSON.stringify(project);
     projectFilePathLabel='CockroachDB';
-    setSupabaseDiagnostic('connected',`Connected to CockroachDB · revision ${supabaseRevision}`,{revision:supabaseRevision,lastError:null});
+    setSupabaseDiagnostic('connected','Connected to normalized CockroachDB tables',{lastError:null});
     return true;
   }catch(e){
     const msg=String(e?.message||e);
     if(/Project not found/i.test(msg)){
-      setSupabaseDiagnostic('connected','CockroachDB connected · project will be created on first save',{revision:0,lastError:null});
-      supabaseRevision=0;
+      setSupabaseDiagnostic('connected','CockroachDB connected · project will be created on first save',{lastError:null});
       lastPersistedProjectJson=null;
       return false;
     }
-    setSupabaseDiagnostic('error','CockroachDB cloud load failed',{lastError:msg});
-    throw e;
+    setSupabaseDiagnostic('error','CockroachDB cloud load failed',{lastError:msg}); throw e;
   }
+}
+
+function changedSections(previous,current){
+  if(!previous)return ['modules','requirements','screens','entities','relations','apis','logic','timeline','references','tests','security','settings'];
+  const keys=['modules','requirements','screens','entities','relations','apis','logic','timeline','references','tests','security','settings'];
+  return keys.filter(k=>JSON.stringify(previous[k]||[])!==JSON.stringify(current[k]||[]));
 }
 
 async function saveProjectToSupabase(){
   if(!supabaseConfigured()){if(window.showToast)showToast('Cockroach API is not configured.');return false;}
   if(!project)return false;
   if(!supabaseSession?.access_token){if(window.showToast)showToast('Sign in before saving.');return false;}
-  const currentProjectJson=JSON.stringify(project);
-  if(lastPersistedProjectJson===currentProjectJson){
-    return true;
-  }
+  const previous=lastPersistedProjectJson?JSON.parse(lastPersistedProjectJson):null;
+  const changes=changedSections(previous,project);
+  const metadataChanged=!previous || JSON.stringify(previous.project||{})!==JSON.stringify(project.project||{});
+  if(metadataChanged && !changes.includes('project'))changes.push('project');
+  if(!changes.length)return true;
   if(supabaseSaveInProgress){supabaseSavePending=true;return false;}
   supabaseSaveInProgress=true;supabaseSavePending=false;
-  setSupabaseDiagnostic('saving','Saving all project data to CockroachDB…');
+  setSupabaseDiagnostic('saving',`Saving changed tables: ${changes.join(', ')||'project metadata'}…`);
   try{
-    const r=await cockroachFetch('/project',{method:'PUT',body:JSON.stringify({revision:Number(supabaseRevision||0),project})});
-    supabaseRevision=Number(r.revision||0);supabaseLastSavedAt=new Date();projectFilePathLabel='CockroachDB';
+    const r=await cockroachFetch('/project',{method:'PUT',body:JSON.stringify({project,changes})});
+    supabaseLastSavedAt=new Date();projectFilePathLabel='CockroachDB';
     lastPersistedProjectJson=JSON.stringify(project);
-    setSupabaseDiagnostic('saved','Saved all project data to CockroachDB ✓',{revision:supabaseRevision,lastSaved:supabaseLastSavedAt.toISOString(),lastError:null});
-    if(window.showToast)showToast(`☁ Saved to CockroachDB ✓ (revision ${supabaseRevision})`);
+    setSupabaseDiagnostic('saved','Saved changed data to CockroachDB ✓',{lastSaved:supabaseLastSavedAt.toISOString(),lastError:null,changedTables:r.changedTables||changes});
+    if(window.showToast)showToast(`☁ Saved to CockroachDB ✓ · ${changes.join(', ')||'project'}`);
     return true;
   }catch(e){
     setSupabaseDiagnostic('error','COCKROACHDB SAVE ERROR — data was NOT confirmed saved',{lastError:String(e?.message||e)});
@@ -388,6 +400,7 @@ function normalizeProject(){
   project.relations ||= [];
   project.apis ||= [];
   project.logic ||= [];
+  project.tests ||= [];
   project.timeline ||= [];
   project.settings ||= {};
   project.project.comments ||= "";
@@ -403,9 +416,9 @@ function saveProject(show=true){
     normalizeProject();
     const payload = JSON.stringify(project, null, 2);
     lastSavedAt = new Date();
-    if(projectFileHandle) writeProjectFile(payload, false);
+    // Cloud-only persistence. No project JSON file is written during normal saves.
     if(!supabaseConfigured()) throw new Error("CockroachDB API is mandatory. Configure docs/js/cockroach-config.js before editing project data.");
-    saveProjectToSupabase().catch(e=>console.error("Required Supabase save failed",e));
+    saveProjectToSupabase().catch(e=>console.error("Required CockroachDB save failed",e));
     if(show && window.showToast) showToast("☁ Saving directly to CockroachDB…");
     return true;
   } catch(e) {
@@ -492,25 +505,4 @@ function resetProject(){
   saveProject(false);
 }
 
-function exportProject(){
-  saveProject(false);
-  const blob=new Blob([JSON.stringify(project,null,2)],{type:"application/json;charset=utf-8"});
-  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=projectFileName(".json"); a.click();
-  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
-  if(window.showToast)showToast("Complete project JSON downloaded");
-}
 
-function importProject(file){
-  const reader = new FileReader();
-  reader.onload = () => {
-    try {
-      project = JSON.parse(reader.result);
-      normalizeProject();
-      projectFileHandle=null;
-      projectFilePathLabel="Browser storage (local)";
-      saveProject(false);
-      location.reload();
-    } catch(e) { alert("Invalid project JSON"); }
-  };
-  reader.readAsText(file);
-}

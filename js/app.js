@@ -92,28 +92,6 @@ function counts(moduleId){
   const f=a=>moduleId ? a.filter(x=>x.moduleId===moduleId).length : a.length;
   return {requirements:f(project.requirements),screens:f(project.screens),entities:f(project.entities),apis:f(project.apis),logic:f(project.logic),tests:f(project.tests||[])};
 }
-function setView(view,moduleId=null){
-  state.view=view; state.moduleId=moduleId;
-  if(view!=="screens"){state.screenId=null;state.selectedComponentId=null;}
-  if(view!=="timeline")state.timelineFilter=null;
-  state.tab="requirements";
-  render();
-}
-window.setView=setView;
-window.navigate=setView;
-window.showView=setView;
-function nav(){
-  $("#sidebarNav").innerHTML = navSections.map(sec=>`
-    <div class="nav-section">${sec.title}</div>
-    ${sec.items.map(([id,icon,label])=>`
-      <button class="nav-item ${state.view===id ? "active":""}" data-view="${id}">
-        <span class="nav-icon">${icon}</span><span>${label}</span>
-      </button>`).join("")}
-  `).join("");
-  $$(".nav-item[data-view]").forEach(b=>b.onclick=()=>setView(b.dataset.view));
-  $("#sidebarProjectName").textContent=project.project.name;
-}
-
 function normalizeDesignData(){
   project.screens.forEach(s=>{
     s.components ||= [];
@@ -134,27 +112,6 @@ function normalizeDesignData(){
 function normalizeComments(){
   project.project.comments ||= "";
   ["modules","requirements","screens","entities","relations","apis","logic","tests"].forEach(k=>project[k].forEach(x=>x.comments ||= ""));
-}
-
-function render(){
-  normalizeDesignData();
-  normalizeComments();
-  nav();
-  const titles={
-    dashboard:"Design Studio",timeline:"Timeline / Project Plan",architecture:"Architecture Map",technical:"Technical Architecture",modules:"System Blueprint",requirements:"Business Requirements",
-    "module-workspace":"Module Workspace",screens:"Screen Designer",erd:"Module ERD","project-erd":"Full Project ERD",backend:"Backend Logic",
-    tasks:"Tasks & Traceability",traceability:"Traceability",validation:"Validation",testing:"Testing",documentation:"Documentation",settings:"Settings",access:"Users & Access",audit:"Audit Log",references:"Reference Images"
-  };
-  $("#pageTitle").textContent=titles[state.view] || "Design Studio";
-  $("#breadcrumb").textContent = state.moduleId ? `${titles[state.view]} / ${moduleById(state.moduleId)?.name||""}` : titles[state.view];
-  const handlers={
-    dashboard:renderDashboard,timeline:renderTimeline,architecture:renderArchitecture,technical:renderTechnicalArchitecture,modules:renderModules,"module-workspace":renderModuleWorkspace,requirements:renderRequirements,
-    screens:renderScreens,references:renderReferences,erd:renderERD,"project-erd":renderProjectERD,backend:renderBackend,tasks:renderTasks,traceability:renderTraceability,
-    validation:renderValidation,testing:renderTesting,documentation:renderDocumentation,settings:renderSettings,access:renderAccess,audit:renderAudit
-  };
-  handlers[state.view]();
-  addQuickNavCarousel();
-  bindActions();
 }
 
 function bindActions(){
@@ -1022,7 +979,7 @@ function bindERDInteractions(full,entities){
     const connectBtn=e.target.closest('[data-erd-connect]');
     if(connectBtn){e.preventDefault();e.stopPropagation();state.erdConnectFrom=connectBtn.dataset.erdConnect;renderERD();showToast('Source selected. Click the target table.');return;}
     const table=e.target.closest('.erd-table');
-    if(table && state.erdConnectFrom){e.preventDefault();e.stopPropagation();if(createERDRelation(state.erdConnectFrom,table.dataset.entity))renderERD();}
+    if(table && state.erdConnectFrom){e.preventDefault();e.stopPropagation();if(createERDRelation(state.erdConnectFrom,table.dataset.entity))(full?renderProjectERD():renderERD());}
   };
   let drag=null;
   const scale=()=>{const r=canvas.getBoundingClientRect();return canvas.offsetWidth?Math.max(.1,r.width/canvas.offsetWidth):1};
@@ -1050,7 +1007,7 @@ function bindERDInteractions(full,entities){
   const up=()=>{if(!drag)return;drag.table.classList.remove('dragging');document.body.classList.remove('erd-dragging');if(drag.moved)saveProject(false);drag=null;};
   document.addEventListener('pointermove',move);
   document.addEventListener('pointerup',up);
-  $$('[data-erd-connect]').forEach(b=>b.onclick=e=>{e.stopPropagation();state.erdConnectFrom=b.dataset.erdConnect;render();showToast('Source selected. Click the target table.');});
+  $$('[data-erd-connect]').forEach(b=>b.onclick=e=>{e.stopPropagation();state.erdConnectFrom=b.dataset.erdConnect;(full?renderProjectERD():renderERD());showToast('Source selected. Click the target table.');});
 }
 
 function drawRelations(entities,full=false){
@@ -1100,16 +1057,10 @@ function renderProjectERD(){
 
 function renderBackend(){
   const m=state.moduleId?moduleById(state.moduleId):null;
+  const apis=m?project.apis.filter(x=>x.moduleId===m.id):project.apis;
   const arr=m?project.logic.filter(x=>x.moduleId===m.id):project.logic;
-  $("#content").innerHTML=`
-    ${m?moduleBanner(m):""}
-    <div class="toolbar"><div class="left"><span class="muted small-text">Define workflow steps, validation and API behavior.</span></div><div class="right"><button class="btn primary" data-action="new-logic">＋ Workflow</button></div></div>
-    <div class="grid two">
-      <div class="card">${arr.length?arr.map(l=>`<div class="card" style="box-shadow:none;margin-bottom:10px;background:#fafcff"><div class="card-title"><div><h3>${esc(l.name)}</h3><span class="muted small-text">${esc(l.trigger)}</span></div><div class="actions"><button class="icon-btn" data-action="edit-logic" data-id="${l.id}">✎</button><button class="icon-btn danger" data-action="delete-logic" data-id="${l.id}">×</button></div></div>${renderCommentSummary(l)}<div class="logic-flow">${l.steps.map((s,i)=>`<div class="logic-node"><h4>${i+1}. ${esc(s)}</h4><p>Workflow step</p></div>${i<l.steps.length-1?`<div class="logic-arrow">→</div>`:""}`).join("")}</div></div>`).join(""):`<div class="empty"><strong>No workflows</strong>Create a backend workflow for this module.</div>`}</div>
-      <div class="card"><div class="card-title"><div><h2>Backend contract</h2><span class="muted small-text">A workflow should connect to an API and permissions.</span></div></div>
-        <div class="property-list">${prop("Recommended sequence","Authenticate → Authorize → Validate → Business rules → Persistence → Audit → Response")}${prop("API layer","REST/JSON")}${prop("Authorization","Permission code per operation")}${prop("Persistence","Oracle repository / service")}</div>
-      </div>
-    </div>`;
+  const tests=m?(project.tests||[]).filter(x=>x.moduleId===m.id):(project.tests||[]);
+  $("#content").innerHTML=`${m?moduleBanner(m):""}<div class="blueprint-hero"><div><span class="eyebrow">BACKEND DESIGNER</span><h1>Backend Logic${m?' · '+esc(m.name):''}</h1><p>Dedicated backend phase: API contracts, validation, permissions, workflows, transactions and error handling. This page is independent from ERD.</p></div><div class="blueprint-hero-actions"><button class="btn primary" data-action="new-api">＋ API Contract</button><button class="btn secondary" data-action="new-logic">＋ Workflow</button>${m?`<button class="btn secondary" data-view="testing" data-module="${m.id}">Testing →</button>`:''}</div></div><div class="grid two"><div class="card"><div class="card-title"><div><h2>API Contracts</h2><span class="muted small-text">Endpoints, permissions, inputs and validation.</span></div></div>${apis.map(a=>`<div class="artifact-row"><div class="artifact-id">${esc(a.method)}</div><div><strong>${esc(a.name)}</strong><small>${esc(a.path)} · ${esc(a.permission||'No permission')} · ${esc(a.status||'Draft')}</small></div><button class="btn tiny" data-action="edit-api" data-id="${a.id}">Open</button></div>`).join('')||'<div class="empty">No API contracts defined yet.</div>'}</div><div class="card"><div class="card-title"><div><h2>Business Workflows</h2><span class="muted small-text">Step-by-step logic behind the APIs and screens.</span></div></div>${arr.map(l=>`<div class="backend-workflow-card"><div class="card-title"><div><h3>${esc(l.name)}</h3><small>${esc(l.trigger||'No trigger')}</small></div><div class="actions"><button class="icon-btn" data-action="edit-logic" data-id="${l.id}">✎</button><button class="icon-btn danger" data-action="delete-logic" data-id="${l.id}">×</button></div></div><ol class="logic-step-list">${(l.steps||[]).map((x,i)=>`<li><strong>${esc(x)}</strong>${l.stepComments?.[i]?`<span class="muted small-text">💬 ${esc(l.stepComments[i])}</span>`:''}</li>`).join('')||'<li>No workflow steps defined.</li>'}</ol></div>`).join('')||'<div class="empty">No backend workflows defined yet.</div>'}</div></div><div class="card" style="margin-top:16px"><div class="card-title"><div><h2>Backend → Testing</h2><span class="muted small-text">Every backend contract should have executable tests.</span></div>${m?`<button class="btn secondary" data-view="testing" data-module="${m.id}">Open Testing Center</button>`:''}</div><div class="grid cards">${metric('APIs',apis.length,'API')}${metric('Workflows',arr.length,'WF')}${metric('Linked Tests',tests.length,'🧪')}</div></div>`;
 }
 
 function renderTraceability(){
@@ -1326,8 +1277,6 @@ function handleAction(action,id){
     case "edit-api": state.editing={type:"api",id};modal("Edit API Contract",apiForm(project.apis.find(x=>x.id===id)));break;
     case "delete-api": if(confirm("Delete API?")){project.apis=project.apis.filter(x=>x.id!==id);saveProject(false);render()}break;
     case "new-logic": state.editing={type:"logic"};modal("New Backend Workflow",logicForm());break;
-    case "edit-logic": state.editing={type:"logic",id};modal("Edit Backend Workflow",logicForm(project.logic.find(x=>x.id===id)));break;
-    case "delete-logic": if(confirm("Delete workflow?")){project.logic=project.logic.filter(x=>x.id!==id);saveProject(false);render()}break;
     case "add-temp-field": {const box=$("#tempFields");box.insertAdjacentHTML("beforeend",fieldEditor({name:"NEW_FIELD",type:"VARCHAR2(100)",pk:false,fk:false},$$("#tempFields .temp-field").length));break}
     case "submit-modal": submitModal();break;
     case "close-modal": closeModal();break;
@@ -1497,7 +1446,7 @@ function setView(view,moduleId=null){
     const u=currentUser(); const roleKey={Administrator:'ADMIN',Architect:'ARCH',Designer:'DESIGNER',Viewer:'VIEWER'}; const role=roleKey[u?.role]||'VIEWER';
     if(project.security.moduleAccess[moduleId]?.[role]===false){showToast('Your role does not have access to this module');return;}
   }
-  state.view=view; state.moduleId=moduleId;
+  state.view=view; if(moduleId!==null) state.moduleId=moduleId;
   if(view!=='screens'){state.screenId=null;state.selectedComponentId=null;}
   if(view!=='timeline')state.timelineFilter=null;
   if(view!=='module-workspace')state.tab='requirements';
@@ -1589,7 +1538,6 @@ document.addEventListener("DOMContentLoaded",async()=>{
       await initializeSupabase();
       if(supabaseSession?.access_token){
         const loaded=await loadSupabaseProject();
-        if(!loaded && supabaseAuthUser) await saveProjectToSupabase();
       }
     }
     installPersistence(); render();
