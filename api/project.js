@@ -107,7 +107,12 @@ export default async function handler(req,res){
         if(!exists) await c.query(`insert into projects(id,name,description,owner,updated_at,updated_by) values($1,$2,$3,$4,now(),$5)`,[PROJECT_ID,p.project?.name||'Design Studio',p.project?.description||'',p.project?.owner||'',user.username]);
         else if(changes.includes('project')) await c.query(`update projects set name=$2,description=$3,owner=$4,updated_at=now(),updated_by=$5 where id=$1`,[PROJECT_ID,p.project?.name||'Design Studio',p.project?.description||'',p.project?.owner||'',user.username]);
         const set=new Set(changes.length?changes:['modules','requirements','screens','entities','relations','apis','logic','timeline','references','tests','security','settings']);
-        if(set.has('modules'))await syncModules(c,p); if(set.has('requirements'))await syncRequirements(c,p); if(set.has('screens'))await syncScreens(c,p); if(set.has('entities'))await syncEntities(c,p); if(set.has('relations'))await syncRelations(c,p); if(set.has('apis'))await syncApis(c,p); if(set.has('logic'))await syncLogic(c,p); if(set.has('timeline'))await syncTimeline(c,p); if(set.has('references'))await syncReferences(c,p); if(set.has('tests'))await syncTesting(c,p); if(set.has('security'))await syncSecurity(c,p); if(set.has('settings'))await syncSettings(c,p);
+        const jobs=[['modules',syncModules],['requirements',syncRequirements],['screens',syncScreens],['entities',syncEntities],['relations',syncRelations],['apis',syncApis],['logic',syncLogic],['timeline',syncTimeline],['references',syncReferences],['tests',syncTesting],['security',syncSecurity],['settings',syncSettings]];
+        for(const [name,fn] of jobs){
+          if(!set.has(name)) continue;
+          try{ await fn(c,p); }
+          catch(e){ const err=new Error(`Save failed in ${name}: ${e?.message||e}`); err.code=e?.code; err.detail=e?.detail; throw err; }
+        }
         return (await c.query('select updated_at from projects where id=$1',[PROJECT_ID])).rows[0]?.updated_at;
       });
       return json(res,200,{ok:true,updated_at:out,changedTables:changes});

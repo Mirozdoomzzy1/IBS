@@ -112,7 +112,18 @@ function supabaseConfigured(){return /^https:\/\/[^\s]+\/api$/.test(COCKROACH_AP
 function apiUrl(path){return `${COCKROACH_API_URL}${path.startsWith('/')?path:`/${path}`}`;}
 function apiHeaders(extra={}){return Object.assign({'Content-Type':'application/json','Accept':'application/json'},extra,supabaseSession?.access_token?{Authorization:`Bearer ${supabaseSession.access_token}`}:{})}
 function apiErrorMessage(status,body){
-  try{const o=typeof body==='string'?JSON.parse(body):body;return o?.error||o?.message||o?.details||`HTTP ${status}`;}catch{return String(body||`HTTP ${status}`)}
+  try{
+    const o=typeof body==='string'?JSON.parse(body):body;
+    if(o && typeof o==='object'){
+      const parts=[];
+      if(o.error) parts.push(typeof o.error==='string'?o.error:JSON.stringify(o.error));
+      if(o.details) parts.push(typeof o.details==='string'?o.details:JSON.stringify(o.details));
+      if(o.hint) parts.push(typeof o.hint==='string'?o.hint:JSON.stringify(o.hint));
+      if(o.code) parts.push(`SQLSTATE ${o.code}`);
+      return parts.join(' | ') || `HTTP ${status}`;
+    }
+    return String(body||`HTTP ${status}`);
+  }catch{return String(body||`HTTP ${status}`)}
 }
 async function cockroachFetch(path,options={}){
   if(!supabaseConfigured())throw new Error('Cockroach API is not configured. Edit docs/js/cockroach-config.js.');
