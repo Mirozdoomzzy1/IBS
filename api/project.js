@@ -17,11 +17,14 @@ export default async function handler(req,res){
       if(!project||typeof project!=='object')return json(res,400,{error:'project object is required.'});
       const out=await withTx(async c=>{
         const current=(await c.query('select revision from projects where id=$1 for update',[PROJECT_ID])).rows[0];
-        if(!current)throw Object.assign(new Error('Project not found. Run the seed/migration first.'),{status:404});
-        const currentRev=Number(current.revision);
-        if(expected!==currentRev)throw Object.assign(new Error(`Revision conflict. Server is at revision ${currentRev}; your copy is ${expected}. Reload before saving.`),{status:409});
+        const currentRev=current ? Number(current.revision) : 0;
+        if(currentRev!==expected)throw Object.assign(new Error(`Revision conflict. Server is at revision ${currentRev}; your copy is ${expected}. Reload before saving.`),{status:409});
         const next=currentRev+1;
-        await c.query('update projects set revision=$2,data=$3,updated_at=now(),updated_by=$4 where id=$1',[PROJECT_ID,next,JSON.stringify(project),user.username]);
+        if(current){
+          await c.query('update projects set revision=$2,data=$3,updated_at=now(),updated_by=$4 where id=$1',[PROJECT_ID,next,JSON.stringify(project),user.username]);
+        } else {
+          await c.query('insert into projects(id,revision,data,updated_at,updated_by) values($1,$2,$3,now(),$4)',[PROJECT_ID,next,JSON.stringify(project),user.username]);
+        }
         const users=Array.isArray(project.security?.users)?project.security.users:[];
         for(const u of users){
           if(!u?.username) continue;

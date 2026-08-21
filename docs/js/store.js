@@ -144,7 +144,16 @@ async function loadSupabaseProject(){
     projectFilePathLabel='CockroachDB';
     setSupabaseDiagnostic('connected',`Connected to CockroachDB · revision ${supabaseRevision}`,{revision:supabaseRevision,lastError:null});
     return true;
-  }catch(e){setSupabaseDiagnostic('error','CockroachDB cloud load failed',{lastError:String(e?.message||e)});throw e}
+  }catch(e){
+    const msg=String(e?.message||e);
+    if(/Project not found/i.test(msg)){
+      setSupabaseDiagnostic('connected','CockroachDB connected · project will be created on first save',{revision:0,lastError:null});
+      supabaseRevision=0;
+      return false;
+    }
+    setSupabaseDiagnostic('error','CockroachDB cloud load failed',{lastError:msg});
+    throw e;
+  }
 }
 
 async function saveProjectToSupabase(){
