@@ -128,6 +128,72 @@ function bindActions(){
   $$("[data-tab]").forEach(el=>el.onclick=()=>{state.tab=el.dataset.tab; render();});
 }
 
+function addModulePhaseNav(){
+  const content = $("#content");
+  if(!content || !project?.modules?.length) return;
+  const phaseViews = ["requirements","screens","backend","erd","testing","module-workspace"];
+  if(!phaseViews.includes(state.view)) return;
+  if(content.querySelector(".module-phase-nav")) return;
+
+  const currentId = state.moduleId || "ALL";
+  const labels = {
+    requirements: "Requirements",
+    screens: "Screens",
+    backend: "Backend Logic",
+    erd: "ERD",
+    testing: "Testing",
+    "module-workspace": "Module Workspace"
+  };
+  const phaseLabel = labels[state.view] || "Design Phase";
+  const options = `<option value="ALL" ${currentId==="ALL"?'selected':''}>All Modules</option>` + project.modules.map(m =>
+    `<option value="${esc(m.id)}" ${m.id===currentId?'selected':''}>${esc(m.name)}</option>`
+  ).join("");
+  const links = phaseViews.filter(v=>v!=="module-workspace").map(v=>
+    `<button class="module-phase-link ${state.view===v?'active':''}" data-module-phase="${v}">${labels[v]}</button>`
+  ).join("");
+
+  content.insertAdjacentHTML("afterbegin", `
+    <div class="module-phase-nav">
+      <div class="module-phase-nav-main">
+        <div class="module-phase-nav-icon">▦</div>
+        <div class="module-phase-nav-copy">
+          <span class="eyebrow">MODULE NAVIGATION</span>
+          <strong>${esc(phaseLabel)}</strong>
+        </div>
+        <label class="module-phase-select-label">
+          <span>Module</span>
+          <select id="phaseModuleSelector" aria-label="Change module">
+            ${options}
+          </select>
+        </label>
+      </div>
+      <div class="module-phase-nav-links">${links}</div>
+    </div>
+  `);
+
+  const selector = $("#phaseModuleSelector");
+  if(selector){
+    selector.onchange = () => {
+      const next = selector.value;
+      state.moduleId = next === "ALL" ? null : next;
+      state.screenId = null;
+      state.selectedComponentId = null;
+      state.erdModule = next;
+      if(state.view === "module-workspace") state.tab = "requirements";
+      render();
+    };
+  }
+  $$('[data-module-phase]').forEach(btn => btn.onclick = () => {
+    const nextView = btn.dataset.modulePhase;
+    state.view = nextView;
+    state.screenId = null;
+    state.selectedComponentId = null;
+    state.erdModule = state.moduleId || "ALL";
+    if(nextView === "module-workspace") state.tab = "requirements";
+    render();
+  });
+}
+
 function addQuickNavCarousel(){
   const content=$("#content");
   if(!content || content.querySelector(".quick-nav-carousel")) return;
@@ -1118,14 +1184,19 @@ function renderValidation(){
   ${issues.length?`<div class="table-wrap"><table class="table"><thead><tr><th>Layer</th><th>Object</th><th>Issue</th></tr></thead><tbody>${issues.map(i=>`<tr><td>${esc(i[0])}</td><td>${esc(i[1])}</td><td><span class="tag orange">${esc(i[2])}</span></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty"><strong>All basic checks passed ✓</strong>The project is ready for deeper design review.</div>`}</div>`;
 }
 async function renderAudit(){
-  $("#content").innerHTML=`<div class="card"><div class="card-title"><div><h2>Audit Log</h2><span class="muted small-text">Server-recorded changes with authenticated actor, timestamp, object and before/after data.</span></div><button class="btn secondary" data-action="refresh-audit">Refresh</button></div><div id="auditRows" class="table-wrap"><div class="empty">Loading audit history…</div></div></div>`;
+  $("#content").innerHTML=`<div class="card"><div class="card-title"><div><h2>Audit Log</h2><span class="muted small-text">Exact server-recorded actions with the authenticated user, object and module.</span></div><button class="btn secondary" data-action="refresh-audit">Refresh</button></div><div id="auditRows" class="table-wrap"><div class="empty">Loading audit history…</div></div></div>`;
   try{
-    if(typeof supabaseFetch!=="function" || !supabaseSession?.access_token) throw new Error("Sign in is required.");
-    const rows=await supabaseFetch(`/rest/v1/audit_log?project_id=eq.${encodeURIComponent(SUPABASE_PROJECT_ID)}&select=id,actor_name,action,object_type,object_id,module_id,changed_at,metadata&order=changed_at.desc&limit=250`);
-    const list=rows||[];
-    $("#auditRows").innerHTML=list.length?`<table class="table"><thead><tr><th>When</th><th>Who</th><th>Action</th><th>Object</th><th>Module</th></tr></thead><tbody>${list.map(x=>`<tr><td>${esc(new Date(x.changed_at).toLocaleString())}</td><td><strong>${esc(x.actor_name||"Unknown")}</strong><div class="muted small-text">${esc(x.metadata?.username||"")}</div></td><td><span class="tag ${x.action==="DELETE"?"red":x.action==="INSERT"?"green":"blue"}">${esc(x.action)}</span></td><td>${esc(x.object_type)} · ${esc(x.object_id||"")}</td><td>${esc(x.module_id||"Project")}</td></tr>`).join("")}</tbody></table>`:`<div class="empty">No audit entries yet.</div>`;
+    if(typeof cockroachFetch!=="function" || !supabaseSession?.access_token) throw new Error("Sign in is required.");
+    const list=await cockroachFetch('/audit?limit=250',{method:'GET'}) || [];
+    $("#auditRows").innerHTML=list.length?`<table class="table"><thead><tr><th>When</th><th>User</th><th>Exact Action</th><th>Object</th><th>Module</th><th>Details</th></tr></thead><tbody>${list.map(x=>{
+      const meta=x.metadata||{};
+      const details=meta.changes?JSON.stringify(meta.changes):'';
+      const cls=x.action==="DELETE"?"red":x.action==="CREATE"?"green":"blue";
+      return `<tr><td>${esc(new Date(x.changed_at).toLocaleString())}</td><td><strong>${esc(x.user_name||x.actor_name||"Unknown")}</strong><div class="muted small-text">@${esc(meta.username||"")}</div></td><td><span class="tag ${cls}">${esc(x.exact_action||x.action||"Changed")}</span></td><td><strong>${esc(x.object_name||x.object_id||"")}</strong><div class="muted small-text">${esc(x.object_type||"")}</div></td><td>${esc(x.module_id||"Project")}</td><td class="small-text">${esc(details)}</td></tr>`;
+    }).join("")}</tbody></table>`:`<div class="empty">No audit entries yet.</div>`;
   }catch(e){$("#auditRows").innerHTML=`<div class="empty"><strong>Audit history unavailable</strong><div class="muted small-text">${esc(e.message||e)}</div></div>`;}
 }
+
 function renderDocumentation(){
   $("#content").innerHTML=`<div class="grid two"><div class="card"><div class="card-title"><div><h2>Project Documentation</h2><span class="muted small-text">Generate a readable design summary.</span></div><button class="btn primary" data-action="download-doc">Download HTML</button></div>
   <div class="property-list">${prop("Project",project.project.name)}${prop("Modules",project.modules.length)}${prop("Requirements",project.requirements.length)}${prop("Screens",project.screens.length)}${prop("Entities",project.entities.length)}${prop("Relationships",project.relations.length)}${prop("APIs",project.apis.length)}${prop("Logic workflows",project.logic.length)}</div></div>
@@ -1498,73 +1569,6 @@ function hasAccess(permission,moduleId=null){
   if(u.role==="Architect")return permission!=="SECURITY.EDIT";
   return true;
 }
-function currentUser(){
-  if(typeof localAuthUser!=="undefined" && localAuthUser) return localAuthUser;
-  if(typeof useLocalAdminFallback==="function"){
-    const u=useLocalAdminFallback();
-    if(u)return u;
-  }
-  return null;
-}
-async function logout(){
-  if(typeof supabaseLogout==="function") await supabaseLogout();
-  else location.reload();
-}
-window.logout=logout;
-
-function setView(view,moduleId=null){
-  if(view==='access' && !hasAccess('SECURITY.VIEW')){showToast('You do not have security-center access');return;}
-  if(['requirements','screens','erd','project-erd','backend','modules','timeline'].includes(view) && currentUser()?.role==='Viewer' && view==='modules'){/* allowed read-only */}
-  if(moduleId && project.security?.moduleAccess){
-    const u=currentUser(); const roleKey={Administrator:'ADMIN',Architect:'ARCH',Designer:'DESIGNER',Viewer:'VIEWER'}; const role=roleKey[u?.role]||'VIEWER';
-    if(project.security.moduleAccess[moduleId]?.[role]===false){showToast('Your role does not have access to this module');return;}
-  }
-  state.view=view; if(moduleId!==null) state.moduleId=moduleId;
-  if(view!=='screens'){state.screenId=null;state.selectedComponentId=null;}
-  if(view!=='timeline')state.timelineFilter=null;
-  if(view!=='module-workspace')state.tab='requirements';
-  render();
-}
-function nav(){
-  const u=currentUser(); const roleKey={Administrator:'ADMIN',Architect:'ARCH',Designer:'DESIGNER',Viewer:'VIEWER'}; const role=roleKey[u?.role]||'VIEWER';
-  const can=(id)=>{
-    if(id==='access'||id==='settings') return role==='ADMIN';
-    if(['backend','erd','project-erd','screens','requirements','modules','timeline','architecture','technical','traceability','validation','testing','documentation','references','dashboard'].includes(id)) return true;
-    return true;
-  };
-  const moduleId=state.moduleId;
-  $('#sidebarNav').innerHTML=navSections.map(sec=>`<div class="nav-section">${sec.title}</div>${sec.items.filter(([id])=>can(id)).map(([id,icon,label])=>`<button class="nav-item ${state.view===id?'active':''}" data-view="${id}"><span class="nav-icon">${icon}</span><span>${label}</span></button>`).join('')}`).join('');
-  $$('.nav-item[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));
-  $('#sidebarProjectName').textContent=project.project.name;
-}
-
-function renderLogin(){
-  document.body.innerHTML=`<div class="login-shell"><div class="login-orb orb-a"></div><div class="login-orb orb-b"></div><div class="login-card">
-    <div class="login-brand"><div class="brand-mark">ES</div><div><b>Enterprise System</b><span>Design Studio</span></div></div>
-    <div class="login-heading"><span class="eyebrow">SECURE WORKSPACE</span><h1>Sign in to your project</h1><p>Sign in with your IBS account.</p></div>
-    <form id="loginForm" class="login-form"><label>Username<input name="username" type="text" autocomplete="username" placeholder="Enter your username" required></label><label>Password<div class="password-wrap"><input id="loginPassword" name="password" type="password" autocomplete="current-password" placeholder="Enter password" required><button type="button" id="togglePassword">Show</button></div></label><div id="loginError" class="login-error"></div><button class="btn primary login-btn">Sign In</button><p class="login-help">Sign in with any active IBS account. The administrator username is configurable by the system owner.</p></form>
-    
-  </div></div>`;
-  $("#loginForm").onsubmit=async e=>{
-    e.preventDefault(); const btn=e.currentTarget.querySelector("button.login-btn"); btn.disabled=true;
-    $("#loginError").textContent="";
-    try{
-      const f=new FormData(e.currentTarget);
-      await supabaseLogin(String(f.get("username")).trim(),String(f.get("password")));
-      location.reload();
-    }catch(err){$("#loginError").textContent=String(err.message||err);btn.disabled=false;}
-  };
-  $("#togglePassword").onclick=()=>{const i=$("#loginPassword");i.type=i.type==="password"?"text":"password";$("#togglePassword").textContent=i.type==="password"?"Show":"Hide";};
-}
-function hasAccess(permission,moduleId=null){
-  const u=currentUser(); if(!u)return false;
-  if(u.role==="Administrator")return true;
-  const map={Architect:"ARCH",Designer:"DESIGNER",Viewer:"VIEWER"}; const role=map[u.role]||"VIEWER";
-  if(moduleId && project.security?.moduleAccess?.[moduleId]?.[role]===false)return false;
-  if(u.role==="Viewer")return permission.endsWith(".VIEW") || permission==="PROJECT.VIEW";
-  if(u.role==="Architect")return permission!=="SECURITY.EDIT";
-  return true;
-}
 function renderAccess(){
   securityDefaults();
   const u=currentUser();
@@ -1598,7 +1602,7 @@ function render(){
   const titles={dashboard:"Design Studio",timeline:"Timeline / Project Plan",architecture:"Architecture Map",technical:"Technical Architecture",modules:"System Blueprint",requirements:"Business Requirements","module-workspace":"Module Workspace",screens:"Screen Designer",erd:"Module ERD","project-erd":"Full Project ERD",backend:"Backend Logic",tasks:"Tasks & Traceability",traceability:"Traceability",validation:"Validation",testing:"Testing",documentation:"Documentation",settings:"Settings",access:"Users & Access",audit:"Audit Log",references:"Reference Images"};
   $("#pageTitle").textContent=titles[state.view]||"Design Studio"; $("#breadcrumb").textContent=state.moduleId?`${titles[state.view]} / ${moduleById(state.moduleId)?.name||""}`:titles[state.view];
   const handlers={dashboard:renderDashboard,timeline:renderTimeline,architecture:renderArchitecture,technical:renderTechnicalArchitecture,modules:renderModules,"module-workspace":renderModuleWorkspace,requirements:renderRequirements,screens:renderScreens,erd:renderERD,"project-erd":renderProjectERD,backend:renderBackend,tasks:renderTasks,traceability:renderTraceability,validation:renderValidation,testing:renderTesting,documentation:renderDocumentation,settings:renderSettings,access:renderAccess,audit:renderAudit,references:renderReferences};
-  (handlers[state.view]||renderDashboard)(); addQuickNavCarousel(); bindActions();
+  (handlers[state.view]||renderDashboard)(); addModulePhaseNav(); addQuickNavCarousel(); bindActions();
   const top=$('.top-actions'); if(top){top.querySelector('.status-pill')?.insertAdjacentHTML('afterend',`<span class="user-pill">👤 ${esc(currentUser().displayName)} · ${esc(currentUser().role)}</span>`);}
 }
 
