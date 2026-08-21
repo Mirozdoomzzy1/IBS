@@ -872,3 +872,448 @@ select
 from information_schema.routines
 where routine_schema='public'
   and routine_name='save_ibs_project_relational';
+
+
+-- ============================================================
+-- v13 SECURITY, FIELD SOURCE, COMMENTS & AUDIT HARDENING
+-- ============================================================
+-- This section intentionally runs LAST so it overrides the older
+-- shared/anonymous prototype policies. The static site is now
+-- authentication-only and every write is attributable to auth.uid().
+
+create table if not exists public.role_permissions (
+  role text not null,
+  permission text not null,
+  allowed boolean not null default true,
+  primary key(role,permission)
+);
+
+create table if not exists public.user_access (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  role text not null default 'Viewer',
+  active boolean not null default true,
+  display_name text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.user_module_access (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  module_id text not null,
+  allowed boolean not null default true,
+  primary key(user_id,module_id)
+);
+
+create table if not exists public.user_permissions (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  permission text not null,
+  allowed boolean not null default true,
+  primary key(user_id,permission)
+);
+
+create table if not exists public.audit_log (
+  id bigint generated always as identity primary key,
+  project_id text not null default 'ERP-DESIGN-001',
+  actor_id uuid references auth.users(id) on delete set null,
+  actor_email text,
+  actor_name text,
+  action text not null,
+  object_type text,
+  object_id text,
+  module_id text,
+  changed_at timestamptz not null default now(),
+  old_data jsonb,
+  new_data jsonb,
+  metadata jsonb not null default '{}'::jsonb
+);
+
+create table if not exists public.comments (
+  id bigint generated always as identity primary key,
+  project_id text not null default 'ERP-DESIGN-001',
+  actor_id uuid references auth.users(id) on delete set null,
+  actor_email text,
+  actor_name text,
+  object_type text not null,
+  object_id text not null,
+  module_id text,
+  comment text not null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists audit_log_project_time_idx on public.audit_log(project_id,changed_at desc);
+create index if not exists audit_log_actor_idx on public.audit_log(actor_id,changed_at desc);
+create index if not exists comments_object_idx on public.comments(project_id,object_type,object_id,created_at desc);
+
+insert into public.role_permissions(role,permission,allowed) values
+('Administrator','PROJECT.EDIT',true),('Administrator','MODULE.EDIT',true),
+('Administrator','REQUIREMENT.EDIT',true),('Administrator','SCREEN.EDIT',true),
+('Administrator','ERD.EDIT',true),('Administrator','API.EDIT',true),
+('Administrator','LOGIC.EDIT',true),('Administrator','TIMELINE.EDIT',true),
+('Administrator','REFERENCE.EDIT',true),('Administrator','SECURITY.EDIT',true),
+('Architect','PROJECT.EDIT',true),('Architect','MODULE.EDIT',true),
+('Architect','REQUIREMENT.EDIT',true),('Architect','SCREEN.EDIT',true),
+('Architect','ERD.EDIT',true),('Architect','API.EDIT',true),
+('Architect','LOGIC.EDIT',true),('Architect','TIMELINE.EDIT',true),
+('Architect','REFERENCE.EDIT',true),
+('Designer','REQUIREMENT.EDIT',true),('Designer','SCREEN.EDIT',true),
+('Designer','REFERENCE.EDIT',true),('Designer','MODULE.EDIT',true),
+('Viewer','PROJECT.VIEW',true),('Viewer','MODULE.VIEW',true),
+('Viewer','REQUIREMENT.VIEW',true),('Viewer','SCREEN.VIEW',true),
+('Viewer','ERD.VIEW',true),('Viewer','API.VIEW',true)
+on conflict(role,permission) do update set allowed=excluded.allowed;
+
+-- Admin bootstrap is controlled through Supabase Auth app_metadata.
+-- Set app_metadata.role = Administrator for the first administrator.
+create or replace function public.ibs_role()
+returns text
+language plpgsql
+stable
+security definer
+set search_path=public
+as $$
+declare v_role text;
+begin
+  if auth.uid() is null then return 'Viewer'; end if;
+  select role into v_role from public.user_access where user_id=auth.uid() and active=true;
+  if v_role is not null then return v_role; end if;
+  -- Safe bootstrap: when no user_access rows exist, the first authenticated
+  -- user is the administrator. Once the admin creates mappings, unmapped users
+  -- become Viewer by default.
+  if not exists(select 1 from public.user_access) then return 'Administrator'; end if;
+  return coalesce(auth.jwt()->'app_metadata'->>'role','Viewer');
+end $$;
+
+create or replace function public.ibs_is_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path=public
+as $$
+  select auth.uid() is not null and public.ibs_role()='Administrator'
+$$;
+
+create or replace function public.ibs_can(p_permission text)
+returns boolean
+language plpgsql
+stable
+security definer
+set search_path=public
+as $$
+declare
+  v_role text := public.ibs_role();
+begin
+  if auth.uid() is null then return false; end if;
+  if v_role='Administrator' then return true; end if;
+  if exists(select 1 from public.user_access where user_id=auth.uid() and active=false) then return false; end if;
+  if exists(select 1 from public.user_permissions where user_id=auth.uid() and permission=p_permission and allowed) then return true; end if;
+  return exists(select 1 from public.role_permissions where role=v_role and permission=p_permission and allowed);
+end $$;
+
+create or replace function public.ibs_module_allowed(p_module_id text)
+returns boolean
+language plpgsql
+stable
+security definer
+set search_path=public
+as $$
+begin
+  if auth.uid() is null then return false; end if;
+  if public.ibs_is_admin() then return true; end if;
+  if exists(select 1 from public.user_module_access where user_id=auth.uid() and module_id=p_module_id and allowed) then return true; end if;
+  return exists(
+    select 1 from public.module_access ma
+    where ma.project_id='ERP-DESIGN-001'
+      and ma.module_id=p_module_id
+      and ma.role=public.ibs_role()
+      and ma.allowed
+  );
+end $$;
+
+create or replace function public.ibs_audit_row()
+returns trigger
+language plpgsql
+security definer
+set search_path=public
+as $$
+declare
+  v_new jsonb := case when TG_OP='DELETE' then null else to_jsonb(NEW) end;
+  v_old jsonb := case when TG_OP='INSERT' then null else to_jsonb(OLD) end;
+  v_project text := coalesce(v_new->>'project_id',v_old->>'project_id',
+                             case when TG_TABLE_NAME='projects' then coalesce(v_new->>'id',v_old->>'id') end,
+                             'ERP-DESIGN-001');
+  v_module text := coalesce(v_new->>'module_id',v_old->>'module_id');
+  v_id text := coalesce(v_new->>'id',v_old->>'id');
+  v_email text := coalesce(auth.jwt()->>'email','');
+  v_name text := coalesce(auth.jwt()->'user_metadata'->>'displayName',auth.jwt()->'user_metadata'->>'display_name',v_email);
+begin
+  insert into public.audit_log(project_id,actor_id,actor_email,actor_name,action,object_type,object_id,module_id,old_data,new_data,metadata)
+  values(v_project,auth.uid(),v_email,v_name,TG_OP,TG_TABLE_NAME,v_id,v_module,v_old,v_new,
+    jsonb_build_object('source','database_trigger','table',TG_TABLE_NAME));
+  return coalesce(NEW,OLD);
+end $$;
+
+-- Recreate audit triggers on all business tables. The audit trigger records
+-- INSERT/UPDATE/DELETE, actor, timestamp, module and before/after JSON.
+do $$
+declare t text;
+begin
+  foreach t in array array['projects','modules','requirements','screens','screen_components','entities','entity_fields','relations','apis','logic','timeline','references','users','roles','permissions','module_access','settings'] loop
+    execute format('drop trigger if exists %I on public.%I', 'trg_ibs_audit_' || t, t);
+    execute format('create trigger %I after insert or update or delete on public.%I for each row execute function public.ibs_audit_row()', 'trg_ibs_audit_' || t, t);
+  end loop;
+end $$;
+
+-- Remove anonymous access. Authenticated users can only see project data;
+-- writes are performed through the protected transaction below.
+do $$
+declare t text;
+begin
+  foreach t in array['projects','revisions','modules','requirements','screens','screen_components','entities','entity_fields','relations','apis','logic','timeline','references','users','roles','permissions','module_access','settings'] loop
+    execute format('drop policy if exists "public shared %s" on public.%I',t,t);
+    execute format('drop policy if exists "authenticated project access %s" on public.%I',t,t);
+    if t='projects' then
+      execute 'create policy "authenticated project access projects" on public.projects for select to authenticated using (id=''ERP-DESIGN-001'')';
+    else
+      execute format('create policy "authenticated project access %s" on public.%I for select to authenticated using (project_id=''ERP-DESIGN-001'')',t,t);
+    end if;
+    execute format('revoke insert, update, delete on table public.%I from anon',t);
+    execute format('revoke insert, update, delete on table public.%I from authenticated',t);
+    execute format('grant select on table public.%I to authenticated',t);
+  end loop;
+end $$;
+
+alter table public.role_permissions enable row level security;
+alter table public.user_access enable row level security;
+alter table public.user_module_access enable row level security;
+alter table public.user_permissions enable row level security;
+alter table public.audit_log enable row level security;
+alter table public.comments enable row level security;
+
+drop policy if exists "authenticated own access" on public.user_access;
+create policy "authenticated own access" on public.user_access for select to authenticated using(user_id=auth.uid() or public.ibs_is_admin());
+drop policy if exists "authenticated own module access" on public.user_module_access;
+create policy "authenticated own module access" on public.user_module_access for select to authenticated using(user_id=auth.uid() or public.ibs_is_admin());
+drop policy if exists "authenticated own permissions" on public.user_permissions;
+create policy "authenticated own permissions" on public.user_permissions for select to authenticated using(user_id=auth.uid() or public.ibs_is_admin());
+drop policy if exists "authenticated role permissions read" on public.role_permissions;
+create policy "authenticated role permissions read" on public.role_permissions for select to authenticated using(true);
+drop policy if exists "authenticated audit read" on public.audit_log;
+create policy "authenticated audit read" on public.audit_log for select to authenticated using(project_id='ERP-DESIGN-001');
+drop policy if exists "authenticated comments read" on public.comments;
+create policy "authenticated comments read" on public.comments for select to authenticated using(project_id='ERP-DESIGN-001');
+
+grant select on public.role_permissions,public.user_access,public.user_module_access,public.user_permissions,public.audit_log,public.comments to authenticated;
+revoke all on public.audit_log from anon;
+revoke all on public.comments from anon;
+
+-- The old RPC is replaced with a protected wrapper implementation. It accepts
+-- the complete project snapshot, but refuses unauthenticated users, viewers,
+-- unauthorized security changes, and edits outside the caller's role.
+create or replace function public.save_ibs_project_relational(p_project jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path=public
+as $$
+declare
+  v_project_id text := 'ERP-DESIGN-001';
+  v_revision bigint;
+  v_old jsonb;
+  v_role text := public.ibs_role();
+  v_user jsonb;
+  v_item jsonb;
+  v_child jsonb;
+  v_screen_id text;
+  v_entity_id text;
+  v_module_id text;
+  v_role_name text;
+  v_allowed boolean;
+begin
+  if auth.uid() is null then raise exception 'Authentication required'; end if;
+  if p_project is null or jsonb_typeof(p_project) <> 'object' then raise exception 'p_project must be a JSON object'; end if;
+
+  select coalesce(data,'{}'::jsonb),revision into v_old,v_revision
+  from public.projects where id=v_project_id for update;
+
+  if v_role='Viewer' and v_revision is not null then raise exception 'Viewer accounts are read-only'; end if;
+
+  -- Security configuration is administrator-only.
+  if (p_project->'security') is distinct from (v_old->'security') and not public.ibs_can('SECURITY.EDIT') then
+    raise exception 'SECURITY.EDIT permission required';
+  end if;
+
+  -- Top-level permission gates. Only changed sections are checked.
+  if (p_project->'project') is distinct from (v_old->'project') and not public.ibs_can('PROJECT.EDIT') then raise exception 'PROJECT.EDIT permission required'; end if;
+  if (p_project->'modules') is distinct from (v_old->'modules') and not public.ibs_can('MODULE.EDIT') then raise exception 'MODULE.EDIT permission required'; end if;
+  if (p_project->'requirements') is distinct from (v_old->'requirements') and not public.ibs_can('REQUIREMENT.EDIT') then raise exception 'REQUIREMENT.EDIT permission required'; end if;
+  if (p_project->'screens') is distinct from (v_old->'screens') and not public.ibs_can('SCREEN.EDIT') then raise exception 'SCREEN.EDIT permission required'; end if;
+  if ((p_project->'entities') is distinct from (v_old->'entities') or p_project->'relations' is distinct from (v_old->'relations')) and not public.ibs_can('ERD.EDIT') then raise exception 'ERD.EDIT permission required'; end if;
+  if (p_project->'apis') is distinct from (v_old->'apis') and not public.ibs_can('API.EDIT') then raise exception 'API.EDIT permission required'; end if;
+  if (p_project->'logic') is distinct from (v_old->'logic') and not public.ibs_can('LOGIC.EDIT') then raise exception 'LOGIC.EDIT permission required'; end if;
+  if (p_project->'timeline') is distinct from (v_old->'timeline') and not public.ibs_can('TIMELINE.EDIT') then raise exception 'TIMELINE.EDIT permission required'; end if;
+  if (p_project->'references') is distinct from (v_old->'references') and not public.ibs_can('REFERENCE.EDIT') then raise exception 'REFERENCE.EDIT permission required'; end if;
+
+  -- Module-level enforcement: changed records must belong to a module the
+  -- caller is allowed to edit. Security/admin bypasses this check.
+  if not public.ibs_is_admin() then
+    for v_item in select value from jsonb_array_elements(coalesce(p_project->'requirements','[]'::jsonb)) loop
+      if (select x from jsonb_array_elements(coalesce(v_old->'requirements','[]'::jsonb)) x where x->>'id'=v_item->>'id' limit 1) is distinct from v_item then
+        if v_item->>'moduleId' is not null and not public.ibs_module_allowed(v_item->>'moduleId') then raise exception 'Module access denied for requirement %',v_item->>'id'; end if;
+      end if;
+    end loop;
+    for v_item in select value from jsonb_array_elements(coalesce(p_project->'screens','[]'::jsonb)) loop
+      if (select x from jsonb_array_elements(coalesce(v_old->'screens','[]'::jsonb)) x where x->>'id'=v_item->>'id' limit 1) is distinct from v_item then
+        if v_item->>'moduleId' is not null and not public.ibs_module_allowed(v_item->>'moduleId') then raise exception 'Module access denied for screen %',v_item->>'id'; end if;
+      end if;
+    end loop;
+    for v_item in select value from jsonb_array_elements(coalesce(p_project->'entities','[]'::jsonb)) loop
+      if (select x from jsonb_array_elements(coalesce(v_old->'entities','[]'::jsonb)) x where x->>'id'=v_item->>'id' limit 1) is distinct from v_item then
+        if v_item->>'moduleId' is not null and not public.ibs_module_allowed(v_item->>'moduleId') then raise exception 'Module access denied for entity %',v_item->>'id'; end if;
+      end if;
+    end loop;
+  end if;
+
+  -- Preserve the original atomic distribution logic from the prior build by
+  -- delegating to an internal implementation would be ideal; the website still
+  -- sends the same normalized project JSON. This function therefore writes the
+  -- complete relational snapshot directly below.
+
+  if v_revision is null then
+    v_revision:=1;
+    insert into public.projects(id,data,revision,updated_at,updated_by)
+    values(v_project_id,p_project,v_revision,now(),auth.uid())
+    on conflict(id) do update set data=excluded.data,revision=excluded.revision,updated_at=excluded.updated_at,updated_by=excluded.updated_by;
+  else
+    v_revision:=v_revision+1;
+    update public.projects set data=p_project,revision=v_revision,updated_at=now(),updated_by=auth.uid() where id=v_project_id;
+  end if;
+
+  -- The relational rows are synchronized from the exact project snapshot.
+  delete from public.screen_components where project_id=v_project_id;
+  delete from public.entity_fields where project_id=v_project_id;
+  delete from public.modules where project_id=v_project_id;
+  delete from public.requirements where project_id=v_project_id;
+  delete from public.screens where project_id=v_project_id;
+  delete from public.entities where project_id=v_project_id;
+  delete from public.relations where project_id=v_project_id;
+  delete from public.apis where project_id=v_project_id;
+  delete from public.logic where project_id=v_project_id;
+  delete from public.timeline where project_id=v_project_id;
+  delete from public."references" where project_id=v_project_id;
+  delete from public.users where project_id=v_project_id;
+  delete from public.roles where project_id=v_project_id;
+  delete from public.permissions where project_id=v_project_id;
+  delete from public.module_access where project_id=v_project_id;
+  delete from public.settings where project_id=v_project_id;
+
+  for v_item in select value from jsonb_array_elements(coalesce(p_project->'modules','[]'::jsonb)) loop
+    insert into public.modules(project_id,id,name,icon,color,description,data,updated_at)
+    values(v_project_id,v_item->>'id',v_item->>'name',v_item->>'icon',v_item->>'color',v_item->>'description',v_item,now());
+  end loop;
+  for v_item in select value from jsonb_array_elements(coalesce(p_project->'requirements','[]'::jsonb)) loop
+    insert into public.requirements(project_id,id,module_id,title,actor,priority,status,data,updated_at)
+    values(v_project_id,v_item->>'id',v_item->>'moduleId',v_item->>'title',v_item->>'actor',v_item->>'priority',v_item->>'status',v_item,now());
+  end loop;
+  for v_item in select value from jsonb_array_elements(coalesce(p_project->'screens','[]'::jsonb)) loop
+    v_screen_id:=v_item->>'id';
+    insert into public.screens(project_id,id,module_id,name,type,status,description,data,updated_at)
+    values(v_project_id,v_screen_id,v_item->>'moduleId',v_item->>'name',v_item->>'type',v_item->>'status',v_item->>'description',v_item,now());
+    for v_child in select value from jsonb_array_elements(coalesce(v_item->'components','[]'::jsonb)) loop
+      insert into public.screen_components(project_id,screen_id,id,type,label,data,updated_at)
+      values(v_project_id,v_screen_id,v_child->>'id',v_child->>'type',v_child->>'label',v_child,now());
+    end loop;
+  end loop;
+  for v_item in select value from jsonb_array_elements(coalesce(p_project->'entities','[]'::jsonb)) loop
+    v_entity_id:=v_item->>'id';
+    insert into public.entities(project_id,id,name,module_id,x,y,data,updated_at)
+    values(v_project_id,v_entity_id,v_item->>'name',v_item->>'moduleId',(v_item->>'x')::numeric,(v_item->>'y')::numeric,v_item,now());
+    for v_child in select value from jsonb_array_elements(coalesce(v_item->'fields','[]'::jsonb)) loop
+      insert into public.entity_fields(project_id,entity_id,name,data,updated_at)
+      values(v_project_id,v_entity_id,v_child->>'name',v_child,now());
+    end loop;
+  end loop;
+  for v_item in select value from jsonb_array_elements(coalesce(p_project->'relations','[]'::jsonb)) loop
+    insert into public.relations(project_id,id,from_entity,to_entity,from_field,to_field,cardinality,data,updated_at)
+    values(v_project_id,v_item->>'id',v_item->>'from',v_item->>'to',v_item->>'fromField',v_item->>'toField',v_item->>'cardinality',v_item,now());
+  end loop;
+  for v_item in select value from jsonb_array_elements(coalesce(p_project->'apis','[]'::jsonb)) loop
+    insert into public.apis(project_id,id,module_id,method,path,name,status,data,updated_at)
+    values(v_project_id,v_item->>'id',v_item->>'moduleId',v_item->>'method',v_item->>'path',v_item->>'name',v_item->>'status',v_item,now());
+  end loop;
+  for v_item in select value from jsonb_array_elements(coalesce(p_project->'logic','[]'::jsonb)) loop
+    insert into public.logic(project_id,id,module_id,name,trigger,data,updated_at)
+    values(v_project_id,v_item->>'id',v_item->>'moduleId',v_item->>'name',v_item->>'trigger',v_item,now());
+  end loop;
+  for v_item in select value from jsonb_array_elements(coalesce(p_project->'timeline','[]'::jsonb)) loop
+    insert into public.timeline(project_id,id,module_id,name,status,start_date,end_date,data,updated_at)
+    values(v_project_id,v_item->>'id',v_item->>'moduleId',v_item->>'name',v_item->>'status',(v_item->>'start')::date,(v_item->>'end')::date,v_item,now());
+  end loop;
+  for v_item in select value from jsonb_array_elements(coalesce(p_project->'references','[]'::jsonb)) loop
+    insert into public."references"(project_id,id,module_id,screen_id,type,title,data,updated_at)
+    values(v_project_id,v_item->>'id',v_item->>'moduleId',v_item->>'screenId',v_item->>'type',v_item->>'title',v_item,now());
+  end loop;
+  for v_item in select value from jsonb_array_elements(coalesce(p_project->'security'->'users','[]'::jsonb)) loop
+    insert into public.users(project_id,id,username,display_name,role,active,data,updated_at)
+    values(v_project_id,v_item->>'id',v_item->>'username',v_item->>'displayName',v_item->>'role',(v_item->>'active')::boolean,v_item,now());
+  end loop;
+  for v_role in select value from jsonb_array_elements(coalesce(p_project->'security'->'roles','[]'::jsonb)) loop
+    insert into public.roles(project_id,id,name,description,data,updated_at)
+    values(v_project_id,v_role->>'id',v_role->>'name',v_role->>'description',v_role,now());
+  end loop;
+  for v_perm in select value::text from jsonb_array_elements_text(coalesce(p_project->'security'->'permissions','[]'::jsonb)) loop
+    insert into public.permissions(project_id,permission,data,updated_at)
+    values(v_project_id,v_perm, jsonb_build_object('permission',v_perm),now());
+  end loop;
+  for v_module_id,v_role_name,v_allowed in
+    select a.key,r.key,(r.value)::boolean
+    from jsonb_each(coalesce(p_project->'security'->'moduleAccess','{}'::jsonb)) a
+    cross join lateral jsonb_each_text(a.value) r
+  loop
+    insert into public.module_access(project_id,module_id,role,allowed,data,updated_at)
+    values(v_project_id,v_module_id,v_role_name,v_allowed,jsonb_build_object('allowed',v_allowed),now());
+  end loop;
+  insert into public.settings(project_id,data,updated_at)
+  values(v_project_id,coalesce(p_project->'settings','{}'::jsonb),now())
+  on conflict(project_id) do update set data=excluded.data,updated_at=now();
+
+  insert into public.revisions(project_id,revision,data,created_at,created_by)
+  values(v_project_id,v_revision,p_project,now(),auth.uid());
+
+  return jsonb_build_object('ok',true,'revision',v_revision,'updated_by',auth.uid());
+end $$;
+
+revoke all on function public.save_ibs_project_relational(jsonb) from public;
+revoke all on function public.save_ibs_project_relational(jsonb) from anon;
+grant execute on function public.save_ibs_project_relational(jsonb) to authenticated;
+
+-- Comments are written through a small authenticated RPC so every comment has
+-- a server-side author and timestamp.
+create or replace function public.add_ibs_comment(p_object_type text,p_object_id text,p_module_id text,p_comment text)
+returns jsonb
+language plpgsql
+security definer
+set search_path=public
+as $$
+declare
+  v_email text := auth.jwt()->>'email';
+  v_name text := coalesce(auth.jwt()->'user_metadata'->>'displayName',auth.jwt()->'user_metadata'->>'display_name',v_email);
+  v_id bigint;
+begin
+  if auth.uid() is null then raise exception 'Authentication required'; end if;
+  if not public.ibs_can('PROJECT.EDIT') and not public.ibs_can('COMMENT.CREATE') then raise exception 'Comment permission required'; end if;
+  insert into public.comments(project_id,actor_id,actor_email,actor_name,object_type,object_id,module_id,comment)
+  values('ERP-DESIGN-001',auth.uid(),v_email,v_name,p_object_type,p_object_id,p_module_id,p_comment)
+  returning id into v_id;
+  insert into public.audit_log(project_id,actor_id,actor_email,actor_name,action,object_type,object_id,module_id,new_data,metadata)
+  values('ERP-DESIGN-001',auth.uid(),v_email,v_name,'COMMENT','comment',p_object_id,p_module_id,
+         jsonb_build_object('comment',p_comment,'comment_id',v_id),jsonb_build_object('source','comment_rpc'));
+  return jsonb_build_object('ok',true,'id',v_id,'author',v_name,'created_at',now());
+end $$;
+
+revoke all on function public.add_ibs_comment(text,text,text,text) from public;
+revoke all on function public.add_ibs_comment(text,text,text,text) from anon;
+grant execute on function public.add_ibs_comment(text,text,text,text) to authenticated;
+
+-- Field-source metadata is stored inside screen_components.data and therefore
+-- participates in both the relational snapshot and audit history.

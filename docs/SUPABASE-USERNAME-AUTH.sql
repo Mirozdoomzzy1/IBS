@@ -1317,70 +1317,104 @@ grant execute on function public.add_ibs_comment(text,text,text,text) to authent
 
 -- Field-source metadata is stored inside screen_components.data and therefore
 -- participates in both the relational snapshot and audit history.
+-- USERNAME AUTHENTICATION + ADMIN USER MANAGEMENT
+-- Run after SUPABASE-FIX-ALL.sql.
+-- The browser displays usernames only. Supabase Auth internally uses a
+-- non-email login identifier in the form username@ibs.local.
 
+alter table public.user_access add column if not exists username text;
+alter table public.user_access add column if not exists display_name text;
+create unique index if not exists user_access_username_uq on public.user_access(lower(username)) where username is not null;
 
--- ============================================================
--- HARD-CODED ADMIN / USERNAME-ONLY MODE
--- This build intentionally has exactly one application identity:
--- username: admin
--- No application email field is used. Supabase Auth may retain its
--- internal identifier, but it is never requested/displayed by the app.
--- ============================================================
+-- Keep the legacy relational project user table aligned with the Auth users.
+-- Email is deliberately not part of the application identity.
 
-create or replace function public.ibs_role()
+create or replace function public.ibs_current_username()
 returns text
-language plpgsql
-stable
-security definer
-set search_path=public
-as $$
-declare
-  v_username text;
-begin
-  if auth.uid() is null then return 'Viewer'; end if;
-
-  select lower(username) into v_username
-  from public.user_access
-  where user_id=auth.uid()
-  limit 1;
-
-  v_username := coalesce(v_username, lower(auth.jwt()->'user_metadata'->>'username'));
-
-  if v_username = 'admin' then
-    return 'Administrator';
-  end if;
-
-  return 'Viewer';
-end $$;
-
-create or replace function public.ibs_is_admin()
-returns boolean
 language sql
 stable
 security definer
 set search_path=public
 as $$
-  select auth.uid() is not null
-     and lower(coalesce(
-       (select ua.username from public.user_access ua where ua.user_id=auth.uid() limit 1),
-       auth.jwt()->'user_metadata'->>'username',
-       ''
-     )) = 'admin'
+  select coalesce(
+    (select ua.username from public.user_access ua where ua.user_id=auth.uid() limit 1),
+    auth.jwt()->'user_metadata'->>'username',
+    'user'
+  )
 $$;
 
--- Keep exactly one application user mapping if an existing project has
--- stale architect/viewer mappings. Do not delete Auth users here.
-delete from public.user_access
-where lower(coalesce(username,'')) <> 'admin';
+create or replace function public.ibs_current_display_name()
+returns text
+language sql
+stable
+security definer
+set search_path=public
+as $$
+  select coalesce(
+    (select ua.display_name from public.user_access ua where ua.user_id=auth.uid() limit 1),
+    auth.jwt()->'user_metadata'->>'displayName',
+    auth.jwt()->'user_metadata'->>'display_name',
+    public.ibs_current_username()
+  )
+$$;
 
--- Force the only mapped application identity to Administrator.
-update public.user_access
-set username='admin',
-    display_name='System Administrator',
-    role='Administrator',
-    active=true
-where lower(username)='admin';
+-- Recreate the audit trigger so the application records the person's name
+-- and username. actor_email is retained only for backwards compatibility and
+-- is intentionally blank for username-based application identities.
+create or replace function public.ibs_audit_row()
+returns trigger
+language plpgsql
+security definer
+set search_path=public
+as $$
+declare
+  v_new jsonb := case when TG_OP='DELETE' then null else to_jsonb(NEW) end;
+  v_old jsonb := case when TG_OP='INSERT' then null else to_jsonb(OLD) end;
+  v_project text := coalesce(v_new->>'project_id',v_old->>'project_id',
+                             case when TG_TABLE_NAME='projects' then coalesce(v_new->>'id',v_old->>'id') end,
+                             'ERP-DESIGN-001');
+  v_module text := coalesce(v_new->>'module_id',v_old->>'module_id');
+  v_id text := coalesce(v_new->>'id',v_old->>'id');
+  v_name text := public.ibs_current_display_name();
+  v_username text := public.ibs_current_username();
+begin
+  insert into public.audit_log(project_id,actor_id,actor_email,actor_name,action,object_type,object_id,module_id,old_data,new_data,metadata)
+  values(v_project,auth.uid(),null,v_name,TG_OP,TG_TABLE_NAME,v_id,v_module,v_old,v_new,
+    jsonb_build_object('source','database_trigger','table',TG_TABLE_NAME,'username',v_username));
+  return coalesce(NEW,OLD);
+end $$;
 
--- The app never reads or writes actor email values.
-update public.audit_log set actor_email=null;
-update public.comments set actor_email=null;
+do $$
+declare t text;
+begin
+  foreach t in array array['projects','modules','requirements','screens','screen_components','entities','entity_fields','relations','apis','logic','timeline','references','users','roles','permissions','module_access','settings'] loop
+    execute format('drop trigger if exists %I on public.%I', 'trg_ibs_audit_' || t, t);
+    execute format('create trigger %I after insert or update or delete on public.%I for each row execute function public.ibs_audit_row()', 'trg_ibs_audit_' || t, t);
+  end loop;
+end $$;
+
+create or replace function public.add_ibs_comment(p_object_type text,p_object_id text,p_module_id text,p_comment text)
+returns jsonb
+language plpgsql
+security definer
+set search_path=public
+as $$
+declare
+  v_name text := public.ibs_current_display_name();
+  v_username text := public.ibs_current_username();
+  v_id bigint;
+begin
+  if auth.uid() is null then raise exception 'Authentication required'; end if;
+  if not public.ibs_can('PROJECT.EDIT') and not public.ibs_can('COMMENT.CREATE') then raise exception 'Comment permission required'; end if;
+  insert into public.comments(project_id,actor_id,actor_email,actor_name,object_type,object_id,module_id,comment)
+  values('ERP-DESIGN-001',auth.uid(),null,v_name,p_object_type,p_object_id,p_module_id,p_comment)
+  returning id into v_id;
+  insert into public.audit_log(project_id,actor_id,actor_email,actor_name,action,object_type,object_id,module_id,new_data,metadata)
+  values('ERP-DESIGN-001',auth.uid(),null,v_name,'COMMENT','comment',p_object_id,p_module_id,
+         jsonb_build_object('comment',p_comment,'comment_id',v_id),jsonb_build_object('source','comment_rpc','username',v_username));
+  return jsonb_build_object('ok',true,'id',v_id,'author',v_name,'username',v_username,'created_at',now());
+end $$;
+
+revoke all on function public.add_ibs_comment(text,text,text,text) from public;
+revoke all on function public.add_ibs_comment(text,text,text,text) from anon;
+grant execute on function public.add_ibs_comment(text,text,text,text) to authenticated;

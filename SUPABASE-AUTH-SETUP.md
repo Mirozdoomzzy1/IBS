@@ -39,10 +39,9 @@ For each user, set optional User Metadata:
 
 Roles supported by the existing UI:
 
-- Administrator
-- Architect
-- Designer
-- Viewer
+- Administrator (hardcoded)
+
+Design roles remain as permission definitions, but they are not login accounts.
 
 If no role metadata is supplied, the application uses `Viewer`.
 
@@ -125,3 +124,13 @@ Supabase Auth is now the authentication mechanism. The old client-side demo pass
 ### Existing database / `version` column
 
 If you already created an older `public.projects` table that has a `version` column, the supplied `SUPABASE-SETUP.sql` safely migrates that column to `revision`. Do not manually delete the table.
+
+
+### Important: Username/password is still Supabase Auth
+The application does **not** authenticate against the `public.user_access` table. Supabase Auth is the credential store. For a username such as `admin`, the application signs in using the internal Auth identifier `internal Auth identifier`. A `400: Invalid login credentials` response therefore means the corresponding Supabase Auth user is missing or its password does not match.
+
+For internal username-only login, create the Auth user with the matching `username@ibs.local` identifier and disable email confirmation in Supabase Auth. Then create/link the corresponding `public.user_access` row with the same username.
+
+
+## Current build note
+This version now uses simple application authentication: `admin` / `123`. Supabase Auth is not required. Additional users can be created from Users & Access.

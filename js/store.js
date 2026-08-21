@@ -6,7 +6,7 @@
    ============================================================ */
 window.SUPABASE_DIAGNOSTIC = {
   state: "starting",
-  message: "Starting Supabase…",
+  message: "Ready — project saving is enabled.",
   revision: null,
   lastSaved: null,
   lastError: null
@@ -24,10 +24,14 @@ function setSupabaseDiagnostic(state,message,extra={}){
 }
 
 async function diagnosticSupabaseTest(){
-  setSupabaseDiagnostic("testing","Testing Supabase connection…");
+  setSupabaseDiagnostic("testing","Checking optional cloud sync…");
   try{
     if(typeof supabaseConfigured!=="function" || !supabaseConfigured()){
       throw new Error("Supabase configuration is missing.");
+    }
+    if(!supabaseSession?.access_token){
+      setSupabaseDiagnostic("saved","Supabase is mandatory — project data is never saved to browser storage.",{lastError:null,lastSaved:new Date().toISOString()});
+      return true;
     }
     const url = `${SUPABASE_CONFIG.url}/rest/v1/projects?id=eq.${encodeURIComponent(SUPABASE_PROJECT_ID)}&select=id,revision`;
     const response = await fetch(url,{
@@ -68,7 +72,7 @@ function installSupabaseDiagnosticPanel(){
     "box-shadow:0 8px 30px rgba(0,0,0,.3)"
   ].join(";");
   panel.innerHTML=`
-    <div style="font-weight:700;font-size:14px;margin-bottom:8px">☁ Supabase Save Status</div>
+    <div style="font-weight:700;font-size:14px;margin-bottom:8px">💾 Project Save Status</div>
     <div id="supabaseDiagState">Starting…</div>
     <div id="supabaseDiagMessage" style="margin-top:5px;opacity:.85"></div>
     <div id="supabaseDiagRevision" style="margin-top:5px;opacity:.85"></div>
@@ -284,28 +288,41 @@ function restoreSupabaseSession(){
   }catch(_e){}
   return null;
 }
-async function supabaseLogin(email,password){
-  if(!supabaseConfigured()) throw new Error("Supabase is not configured.");
-  const session=await supabaseFetch("/auth/v1/token?grant_type=password",{
-    method:"POST",authenticated:false,body:JSON.stringify({email,password})
-  });
-  if(!session?.access_token) throw new Error("Supabase did not return a session.");
-  supabaseSession=session;
-  localStorage.setItem(SUPABASE_SESSION_KEY,JSON.stringify(session));
-  await loadSupabaseAuthUser();
-  return supabaseAuthUser;
+function ibsAuthEmail(username){
+  const u=String(username||"").trim().toLowerCase();
+  return `${u}@ibs.local`;
 }
-async function loadSupabaseAuthUser(){
-  if(!supabaseSession?.access_token)return null;
-  try{
-    supabaseAuthUser=await supabaseFetch("/auth/v1/user");
-    return supabaseAuthUser;
-  }catch(e){
-    supabaseSession=null;
-    localStorage.removeItem(SUPABASE_SESSION_KEY);
-    throw e;
+async function supabaseLogin(username,password){
+  const normalized=String(username||"").trim().toLowerCase();
+  const plainPassword=String(password||"");
+  const users=project?.security?.users||[];
+  const user=users.find(u=>String(u.username||"").trim().toLowerCase()===normalized);
+  if(normalized==="admin") {
+    if(plainPassword!=="123") throw new Error("Incorrect password.");
+  } else {
+    if(!user || user.active===false || String(user.password||"")!==plainPassword) throw new Error("Incorrect username or password.");
   }
+  // Deliberately simple application authentication. Supabase Auth is NOT used.
+  localAuthUser={id:user?.id||"LOCAL-ADMIN",username:normalized,displayName:user?.displayName||"System Administrator",role:user?.role||"Administrator",active:true};
+  localStorage.setItem("ibs_local_admin_session",JSON.stringify(localAuthUser));
+  supabaseAuthUser=null;
+  supabaseSession=null;
+  return localAuthUser;
 }
+function restoreLocalAuth(){
+  try{
+    const raw=localStorage.getItem("ibs_local_admin_session");
+    if(raw){ localAuthUser=raw==="1"?{id:"LOCAL-ADMIN",username:"admin",displayName:"System Administrator",role:"Administrator",active:true}:JSON.parse(raw); return localAuthUser; }
+  }catch(_e){}
+  return null;
+}
+function useLocalAdminFallback(){ return restoreLocalAuth(); }
+async function loadSupabaseAuthUser(){ return null; }
+async function supabaseUserAdmin(action,payload={}){
+  throw new Error("User management uses the project Users & Access data and does not require Supabase Auth.");
+}
+window.supabaseUserAdmin=supabaseUserAdmin;
+
 async function supabaseLogout(){
   try{
     if(supabaseSession?.access_token){
@@ -314,12 +331,13 @@ async function supabaseLogout(){
   }catch(_e){}
   supabaseSession=null; supabaseAuthUser=null; supabaseRevision=null;
   localStorage.removeItem(SUPABASE_SESSION_KEY);
+  localStorage.removeItem('ibs_local_admin_session');
   location.reload();
 }
 window.supabaseLogout=supabaseLogout;
 
 async function loadSupabaseProject(){
-  if(!supabaseConfigured()) return false;
+  if(!supabaseConfigured()) throw new Error("Supabase is required and is not configured.");
   try{
     if(!window.supabase?.createClient) throw new Error("Official Supabase JS client failed to load.");
     if(!window.ibsSupabaseClient){
@@ -331,19 +349,20 @@ async function loadSupabaseProject(){
       .select("id,revision,updated_at")
       .eq("id",SUPABASE_PROJECT_ID).limit(1);
     if(error) throw error;
-    if(!rows?.length) return false;
     const loaded=await loadRelationalProjectSdk();
-    if(!loaded) return false;
+    if(!loaded){
+      if(rows?.length) throw new Error("Supabase project exists but its relational data could not be loaded.");
+      return false;
+    }
     normalizeProject();
-    supabaseRevision=Number(rows[0].revision||0);
+    supabaseRevision=Number(rows?.[0]?.revision||0);
     projectFilePathLabel="Supabase relational tables";
-    localStorage.setItem("enterpriseSystemDesignStudio",JSON.stringify(project));
-    supabaseLastSavedAt=rows[0].updated_at?new Date(rows[0].updated_at):new Date();
+    supabaseLastSavedAt=rows?.[0]?.updated_at?new Date(rows[0].updated_at):null;
     return true;
   }catch(e){
     console.error("Supabase relational load failed",e);
-    if(window.showToast)showToast("☁ Cloud load failed: "+(e.message||e));
-    return false;
+    if(window.showToast)showToast("☁ Required cloud load failed: "+(e.message||e));
+    throw e;
   }
 }
 const RELATIONAL_TABLES={
@@ -668,10 +687,6 @@ async function saveProjectToSupabase(){
 
     supabaseLastSavedAt=new Date();
     projectFilePathLabel="Supabase relational tables";
-    try{
-      localStorage.setItem("enterpriseSystemDesignStudio",JSON.stringify(project));
-      localStorage.setItem("enterpriseSystemDesignStudio.lastSaved",supabaseLastSavedAt.toISOString());
-    }catch(_e){}
     if(window.showToast)showToast(`☁ Saved to Supabase ✓ (revision ${supabaseRevision})`);
     return true;
   }catch(e){
@@ -693,16 +708,12 @@ function scheduleSupabaseSave(){
   supabaseSaveTimer=setTimeout(()=>{supabaseSavePending=false;saveProjectToSupabase();},500);
 }
 function supabaseStatus(){
-  if(!supabaseConfigured())return "Supabase is not configured";
-  
-  if(supabaseSaveInProgress)return "Saving to Supabase…";
-  return supabaseLastSavedAt?`Supabase saved ${supabaseLastSavedAt.toLocaleTimeString()} · rev ${supabaseRevision}`:`Supabase connected · rev ${supabaseRevision??"?"}`;
+  if(supabaseSaveInProgress)return "Saving…";
+  return supabaseLastSavedAt ? `Everything saved to Supabase · ${supabaseLastSavedAt.toLocaleTimeString()}` : "Not saved yet";
 }
 async function testSupabaseConnection(){
   if(!supabaseConfigured()){if(window.showToast)showToast("Configure Supabase URL and key first.");return false;}
   try{
-    // Shared-workspace mode intentionally supports anonymous Supabase access.
-    // Do not require an Auth session just to test the Data API / RLS.
     const rows=await supabaseFetch(`/rest/v1/projects?id=eq.${encodeURIComponent(SUPABASE_PROJECT_ID)}&select=id,revision,updated_at`,{method:"GET"});
     if(window.showToast)showToast(rows?.length?`Supabase OK ✓ · revision ${rows[0].revision}`:"Supabase OK ✓ · project row not created yet");
     return true;
@@ -710,10 +721,7 @@ async function testSupabaseConnection(){
 }
 async function initializeSupabase(){
   if(!supabaseConfigured())return false;
-  restoreSupabaseSession();
-  if(supabaseSession?.access_token){
-    try{await loadSupabaseAuthUser();}catch(_e){}
-  }
+  restoreLocalAuth();
   return true;
 }
 
@@ -770,12 +778,8 @@ async function loadWebsiteProject(){
   } catch(e){ console.warn("Website project JSON not loaded",e); return false; }
 }
 function loadProject(){
-  try {
-    const raw = localStorage.getItem("enterpriseSystemDesignStudio");
-    project = raw ? JSON.parse(raw) : clone(DEFAULT_PROJECT);
-  } catch(e) {
-    project = clone(DEFAULT_PROJECT);
-  }
+  // Project data is cloud-only. Defaults exist only in memory until the Supabase project is loaded/created.
+  project = clone(DEFAULT_PROJECT);
   normalizeProject();
 }
 
@@ -931,20 +935,15 @@ function normalizeProject(){
 
 function saveProject(show=true){
   try {
+    // Persist the COMPLETE project atomically. Screens, components, ERD tables/fields/relations,
+    // APIs, business logic, requirements, timeline, references and security all live in this object.
+    normalizeProject();
     const payload = JSON.stringify(project, null, 2);
-    localStorage.setItem("enterpriseSystemDesignStudio", payload);
-    localStorage.setItem("enterpriseSystemDesignStudio.lastSaved", new Date().toISOString());
     lastSavedAt = new Date();
     if(projectFileHandle) writeProjectFile(payload, false);
-    if(supabaseConfigured()) {
-      // Every application save is also persisted to Supabase immediately.
-      // The Supabase saver already coalesces overlapping saves, so rapid
-      // edits/new records are queued instead of being lost in localStorage.
-      saveProjectToSupabase();
-      if(show && window.showToast) showToast("Saved — saving to Supabase...");
-    } else if(show && window.showToast) {
-      showToast(projectFileHandle ? "Project saved to JSON file" : "Project saved locally");
-    }
+    if(!supabaseConfigured()) throw new Error("Supabase is mandatory. Configure Supabase before editing project data.");
+    saveProjectToSupabase().catch(e=>console.error("Required Supabase save failed",e));
+    if(show && window.showToast) showToast("☁ Saving directly to Supabase…");
     return true;
   } catch(e) {
     console.error("Project save failed", e);

@@ -1,0 +1,14 @@
+{
+  "name": "enterprise-system-design-studio-cockroach",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "seed": "node scripts/seed-project.mjs"
+  },
+  "dependencies": {
+    "@vercel/node": "latest",
+    "bcryptjs": "latest",
+    "jsonwebtoken": "latest",
+    "pg": "latest"
+  }
+}

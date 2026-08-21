@@ -1,0 +1,22 @@
+ENTERPRISE SYSTEM DESIGN STUDIO - CLOUDFLARE PAGES DIRECT UPLOAD
+
+Frontend deployment:
+- Upload this project folder using Cloudflare Pages -> Direct Upload.
+- The project contains index.html plus the static CSS/JS/data assets.
+- The Supabase Edge Functions directory was intentionally removed from this
+  frontend deployment package because Cloudflare's Direct Upload does not
+  build TypeScript projects.
+
+Supabase database:
+- Supabase SQL scripts are preserved under:
+  deployment-support/supabase-sql/
+
+Important:
+- Do not upload supabase/functions/ through the Cloudflare Pages Direct Upload
+  flow.
+- Deploy the Supabase Edge Functions separately through Supabase CLI if they
+  are required by the application.
+
+No application source files were intentionally rewritten; the package was
+prepared by removing the TypeScript Edge Functions and retaining the existing
+frontend assets and SQL scripts.

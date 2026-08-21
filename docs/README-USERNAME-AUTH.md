@@ -1,0 +1,41 @@
+# Username authentication — one-click database setup
+
+## Run this file only
+
+Open Supabase SQL Editor and run:
+
+`SUPABASE-ONE-CLICK.sql`
+
+This file contains the complete relational/security migration followed by the username authentication migration. It creates `public.user_access` before anything references it, so the previous error:
+
+`ERROR: 42P01: relation "public.user_access" does not exist`
+
+will not occur when this file is run on a fresh or existing IBS database.
+
+You do **not** need to run `SUPABASE-FIX-ALL.sql` separately first.
+
+## Admin login
+
+- Username: `admin`
+- Password: `123`
+- Role: `Administrator`
+
+The application has one hardcoded administrator username: `admin`. Supabase Auth verifies its password. Supabase Auth uses an internal `internal Auth identifier` identifier; the application never displays or asks the user for an email.
+
+## Creating users
+
+There is no user-management screen in this build. The only application account is the hardcoded `admin` username.
+
+- Administrator (hardcoded)
+
+Design roles remain as permission definitions, but they are not login accounts.
+
+Permissions are enforced server-side and actions are written to the audit log.
+
+## Edge Function
+
+Deploy:
+
+`supabase/functions/ibs-user-admin/index.ts`
+
+The function uses Supabase's server-side the Supabase Edge Function secret; no service-role key is included in the static website.

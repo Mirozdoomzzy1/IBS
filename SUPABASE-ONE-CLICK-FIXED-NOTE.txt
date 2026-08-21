@@ -1,0 +1,1 @@
+Run ONLY SUPABASE-ONE-CLICK.sql in the Supabase SQL Editor. This version fixes dynamic trigger naming for reserved table name references.

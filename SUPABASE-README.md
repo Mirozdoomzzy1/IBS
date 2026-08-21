@@ -39,10 +39,9 @@ For each user, set optional User Metadata:
 
 Roles supported by the existing UI:
 
-- Administrator
-- Architect
-- Designer
-- Viewer
+- Administrator (hardcoded)
+
+Design roles remain as permission definitions, but they are not login accounts.
 
 If no role metadata is supplied, the application uses `Viewer`.
 
@@ -129,3 +128,28 @@ If you already created an older `public.projects` table that has a `version` col
 ## Relational persistence
 
 Run `RELATIONAL-SUPABASE.sql` after `SUPABASE-SETUP.sql`. The website now writes project parts into real Supabase tables (modules, requirements, screens/components, entities/fields, relations, APIs, logic, timeline, references, users, roles, permissions, module access and settings) on every save. `projects`/`revisions` remain the complete JSON backup and optimistic revision history.
+
+## Username-only login and user management (v13.1)
+
+The current build uses **username + password** in the application. Users do not enter or see email addresses.
+
+Run `SUPABASE-ONE-CLICK.sql` after the main SQL, then deploy the included Edge Function:
+
+```bash
+supabase functions deploy ibs-user-admin
+```
+
+The function uses Supabase's server-side the Supabase Edge Function secret; this key is never shipped to GitHub Pages/browser code.
+
+Initial sign-in:
+
+- Username: `admin`
+- Password: `123`
+
+From **Security Center → Users**, an Administrator can create, edit, and disable other users and assign the Administrator, Architect, Designer, or Viewer role.
+
+
+### Important: Username/password is still Supabase Auth
+The application does **not** authenticate against the `public.user_access` table. Supabase Auth is the credential store. For a username such as `admin`, the application signs in using the internal Auth identifier `internal Auth identifier`. A `400: Invalid login credentials` response therefore means the corresponding Supabase Auth user is missing or its password does not match.
+
+For internal username-only login, create the Auth user with the matching `username@ibs.local` identifier and disable email confirmation in Supabase Auth. Then create/link the corresponding `public.user_access` row with the same username.
