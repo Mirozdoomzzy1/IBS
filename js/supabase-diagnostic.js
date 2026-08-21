@@ -1,3 +1,4 @@
+console.info("[Enterprise Studio] Supabase relational build 20260821-2 loaded");
 /* GitHub Pages-safe Supabase footer diagnostic */
 (function(){
   "use strict";
