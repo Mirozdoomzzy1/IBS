@@ -624,11 +624,8 @@ window.IBSLocalUsers = window.IBSLocalUsers || {
     return users || [];
   },
   ensureAdmin() {
-    const users = this.load();
-    if (!users.some(u => String(u.username || '').toLowerCase() === 'admin')) {
-      users.unshift({username:'admin', password:'123', role:'Administrator', active:true});
-      this.save(users);
-    }
+    // Compatibility only: users are now authoritative in CockroachDB.
+    // Never inject a hard-coded administrator account into localStorage.
     return this.load();
   },
   add(user) {
@@ -654,7 +651,6 @@ window.IBSLocalUsers = window.IBSLocalUsers || {
   },
   remove(username) {
     const users = this.ensureAdmin();
-    if (String(username).toLowerCase() === 'admin') throw new Error('The administrator cannot be removed');
     return this.save(users.filter(u => String(u.username).toLowerCase() !== String(username).toLowerCase()));
   }
 };

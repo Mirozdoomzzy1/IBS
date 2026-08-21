@@ -162,7 +162,7 @@ async function loadSupabaseProject(){
     project=r.project; normalizeProject();
     supabaseLastSavedAt=r.updated_at?new Date(r.updated_at):null;
     lastPersistedProjectJson=JSON.stringify(project);
-    projectFilePathLabel='CockroachDB';
+    project.links ||= []; project.taskLinks ||= []; project.comments ||= []; project.links ||= []; project.taskLinks ||= []; project.comments ||= []; projectFilePathLabel='CockroachDB';
     setSupabaseDiagnostic('connected','Connected to normalized CockroachDB tables',{lastError:null});
     return true;
   }catch(e){
@@ -178,7 +178,7 @@ async function loadSupabaseProject(){
 
 function changedSections(previous,current){
   if(!previous)return ['modules','requirements','screens','entities','relations','apis','logic','timeline','references','tests','security','settings'];
-  const keys=['modules','requirements','screens','entities','relations','apis','logic','timeline','references','tests','security','settings'];
+  const keys=['modules','requirements','screens','entities','relations','apis','logic','timeline','references','tests','links','comments','security','settings'];
   return keys.filter(k=>JSON.stringify(previous[k]||[])!==JSON.stringify(current[k]||[]));
 }
 
@@ -187,7 +187,7 @@ async function saveProjectToSupabase(){
   if(!project)return false;
   if(!supabaseSession?.access_token){if(window.showToast)showToast('Sign in before saving.');return false;}
   const previous=lastPersistedProjectJson?JSON.parse(lastPersistedProjectJson):null;
-  const changes=changedSections(previous,project);
+  project.links ||= []; project.taskLinks ||= []; project.comments ||= []; const changes=changedSections(previous,project);
   const metadataChanged=!previous || JSON.stringify(previous.project||{})!==JSON.stringify(project.project||{});
   if(metadataChanged && !changes.includes('project'))changes.push('project');
   if(!changes.length)return true;
@@ -196,7 +196,7 @@ async function saveProjectToSupabase(){
   setSupabaseDiagnostic('saving',`Saving changed tables: ${changes.join(', ')||'project metadata'}…`);
   try{
     const r=await cockroachFetch('/project',{method:'PUT',body:JSON.stringify({project,changes})});
-    supabaseLastSavedAt=new Date();projectFilePathLabel='CockroachDB';
+    supabaseLastSavedAt=new Date();project.links ||= []; project.taskLinks ||= []; project.comments ||= []; project.links ||= []; project.taskLinks ||= []; project.comments ||= []; projectFilePathLabel='CockroachDB';
     lastPersistedProjectJson=JSON.stringify(project);
     setSupabaseDiagnostic('saved','Saved changed data to CockroachDB ✓',{lastSaved:supabaseLastSavedAt.toISOString(),lastError:null,changedTables:r.changedTables||changes});
     if(window.showToast)showToast(`☁ Saved to CockroachDB ✓ · ${changes.join(', ')||'project'}`);

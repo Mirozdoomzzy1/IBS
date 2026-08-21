@@ -1069,14 +1069,9 @@ function renderBackend(){
 }
 
 function renderTraceability(){
-  const rows=project.requirements.map(r=>{
-    const screens=project.screens.filter(s=>s.moduleId===r.moduleId);
-    const ents=project.entities.filter(e=>e.moduleId===r.moduleId);
-    const apis=project.apis.filter(a=>a.moduleId===r.moduleId);
-    const logic=project.logic.filter(l=>l.moduleId===r.moduleId);
-    return `<tr><td><strong>${esc(r.id)}</strong><br><span class="muted">${esc(r.title)}</span></td><td>${yesno(screens.length>0)}</td><td>${yesno(ents.length>0)}</td><td>${yesno(apis.length>0)}</td><td>${yesno(logic.length>0)}</td></tr>`;
-  }).join("");
-  $("#content").innerHTML=`<div class="card"><div class="card-title"><div><h2>Requirement Traceability Matrix</h2><span class="muted small-text">Module-level links show whether downstream design artifacts exist.</span></div><button class="btn secondary" data-action="export-traceability">Export CSV</button></div><div class="table-wrap"><table class="table"><thead><tr><th>Requirement</th><th>Screen</th><th>ERD</th><th>API</th><th>Logic</th></tr></thead><tbody>${rows||`<tr><td colspan="5"><div class="empty">No requirements.</div></td></tr>`}</tbody></table></div></div>`;
+  const links=project.links||[];
+  const rows=project.requirements.map(r=>{const get=t=>links.flatMap(l=>l.sourceType==='requirement'&&l.sourceId===r.id&&l.targetType===t?[l.targetId]:l.targetType==='requirement'&&l.targetId===r.id&&l.sourceType===t?[l.sourceId]:[]);const screens=get('screen'),ents=get('entity'),apis=get('api'),logic=get('logic'),tests=get('test');const names=(ids,list,key='name')=>ids.map(id=>esc(list.find(x=>x.id===id)?.[key]||id)).join('<br>');return `<tr><td><strong>${esc(r.id)}</strong><br><span class="muted">${esc(r.title)}</span></td><td>${screens.length?names(screens,project.screens):yesno(false)}</td><td>${ents.length?names(ents,project.entities):yesno(false)}</td><td>${apis.length?names(apis,project.apis):yesno(false)}</td><td>${logic.length?names(logic,project.logic):yesno(false)}</td><td>${tests.length?names(tests,project.tests):yesno(false)}</td></tr>`}).join('');
+  $('#content').innerHTML=`<div class="card"><div class="card-title"><div><h2>Requirement Traceability Matrix</h2><span class="muted small-text">Explicit links between requirements, screens, backend logic, APIs, ERD and testing.</span></div><button class="btn secondary" data-action="export-traceability">Export CSV</button></div><div class="table-wrap"><table class="table"><thead><tr><th>Requirement</th><th>Screen</th><th>ERD</th><th>API</th><th>Logic</th><th>Testing</th></tr></thead><tbody>${rows||`<tr><td colspan="6"><div class="empty">No requirements.</div></td></tr>`}</tbody></table></div></div>`;
 }
 function yesno(v){return `<span class="coverage-cell ${v?"yes":"no"}">${v?"✓":"—"}</span>`}
 
@@ -1096,11 +1091,11 @@ function testingForm(item){
   const stepRows=(item.steps||[]).map((st,i)=>`<div class="test-step-editor" data-step-row><div class="test-step-number">${i+1}</div><div class="test-step-fields"><input name="step_action" value="${esc(st.action||'')}" placeholder="Action / instruction"><input name="step_expected" value="${esc(st.expected||'')}" placeholder="Expected result"><select name="step_status">${['Not Run','In Progress','Passed','Failed','Blocked','Skipped'].map(x=>`<option ${x===(st.status||'Not Run')?'selected':''}>${x}</option>`).join('')}</select><textarea name="step_comments" placeholder="Comment for this step, defect, evidence or decision...">${esc(st.comments||'')}</textarea></div><button type="button" class="icon-btn danger" data-action="remove-test-step" data-id="${i}">×</button></div>`).join('');
   const reqOpts=project.requirements.map(r=>`<option value="${r.id}" ${r.id===(item.requirementId||'')?'selected':''}>${esc(r.id)} — ${esc(r.title)}</option>`).join('');
   const screenOpts=project.screens.filter(s=>!item.moduleId||s.moduleId===item.moduleId).map(s=>`<option value="${s.id}" ${s.id===(item.screenId||'')?'selected':''}>${esc(s.name)}</option>`).join('');
-  return `<div class="form-grid"><div class="field"><label>Test ID</label><input name="id" value="${esc(item.id)}" readonly></div><div class="field"><label>Module</label>${moduleSelector(item.moduleId)}</div><div class="field full"><label>Test name</label><input name="name" value="${esc(item.name)}" placeholder="Example: Create employee with valid data"></div><div class="field"><label>Type</label><select name="type">${['Functional','UI','Integration','API','Security','UAT','Regression','Performance'].map(x=>`<option ${x===item.type?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Priority</label><select name="priority">${['Low','Medium','High','Critical'].map(x=>`<option ${x===item.priority?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Status</label><select name="status">${['Not Run','In Progress','Passed','Failed','Blocked','Skipped'].map(x=>`<option ${x===item.status?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Requirement</label><select name="requirementId"><option value="">— None —</option>${reqOpts}</select></div><div class="field"><label>Screen</label><select name="screenId"><option value="">— None —</option>${screenOpts}</select></div><div class="field full"><label>Preconditions</label><textarea name="preconditions">${esc(item.preconditions||'')}</textarea></div><div class="field full"><label>Expected overall result</label><textarea name="expectedResult">${esc(item.expectedResult||'')}</textarea></div><div class="field full"><label>Actual result / execution notes</label><textarea name="actualResult">${esc(item.actualResult||'')}</textarea></div><div class="field full"><div class="card-title"><h3>Execution Steps</h3><button type="button" class="btn secondary" data-action="add-test-step">＋ Step</button></div><div id="testStepsEditor">${stepRows||'<div class="empty">No steps. Add one.</div>'}</div></div><div class="field full"><label>💬 Test Case Comments</label><textarea name="comments">${esc(item.comments||'')}</textarea></div></div>`;
+  return `<div class="form-grid"><div class="field"><label>Test ID</label><input name="id" value="${esc(item.id)}" readonly></div><div class="field"><label>Module</label>${moduleSelector(item.moduleId)}</div><div class="field full"><label>Test name</label><input name="name" value="${esc(item.name)}" placeholder="Example: Create employee with valid data"></div><div class="field"><label>Type</label><select name="type">${['Functional','UI','Integration','API','Security','UAT','Regression','Performance'].map(x=>`<option ${x===item.type?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Priority</label><select name="priority">${['Low','Medium','High','Critical'].map(x=>`<option ${x===item.priority?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Status</label><select name="status">${['Not Run','In Progress','Passed','Failed','Blocked','Skipped'].map(x=>`<option ${x===item.status?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Requirement</label><select name="requirementId"><option value="">— None —</option>${reqOpts}</select></div><div class="field"><label>Screen</label><select name="screenId"><option value="">— None —</option>${screenOpts}</select></div><div class="field full"><div class="card-title"><h3>Traceability Links</h3></div></div>${artifactLinkSelector(item,'logic','Linked Backend Logic','test')}${artifactLinkSelector(item,'api','Linked APIs','test')}<div class="field full"><label>Preconditions</label><textarea name="preconditions">${esc(item.preconditions||'')}</textarea></div><div class="field full"><label>Expected overall result</label><textarea name="expectedResult">${esc(item.expectedResult||'')}</textarea></div><div class="field full"><label>Actual result / execution notes</label><textarea name="actualResult">${esc(item.actualResult||'')}</textarea></div><div class="field full"><div class="card-title"><h3>Execution Steps</h3><button type="button" class="btn secondary" data-action="add-test-step">＋ Step</button></div><div id="testStepsEditor">${stepRows||'<div class="empty">No steps. Add one.</div>'}</div></div>${commentsField(item,"Test case comments")}</div>`;
 }
 function addTestingStep(){const box=$('#testStepsEditor');if(!box)return;const i=box.querySelectorAll('[data-step-row]').length;box.insertAdjacentHTML('beforeend',`<div class="test-step-editor" data-step-row><div class="test-step-number">${i+1}</div><div class="test-step-fields"><input name="step_action" placeholder="Action / instruction"><input name="step_expected" placeholder="Expected result"><select name="step_status">${['Not Run','In Progress','Passed','Failed','Blocked','Skipped'].map(x=>`<option>${x}</option>`).join('')}</select><textarea name="step_comments" placeholder="Comment for this step, defect, evidence or decision..."></textarea></div><button type="button" class="icon-btn danger" data-action="remove-test-step" data-id="${i}">×</button></div>`); $$('#modalRoot [data-action="remove-test-step"]').forEach(el=>el.onclick=()=>removeTestingStep(el.dataset.index));}
 function removeTestingStep(index){const rows=$$('#testStepsEditor [data-step-row]');if(rows[index])rows[index].remove();rows.forEach((r,i)=>{r.querySelector('.test-step-number').textContent=i+1;r.querySelector('[data-action="remove-test-step"]')?.setAttribute('data-id',i);});}
-function submitTestingModal(){const v=formValues();const steps=$$('#testStepsEditor [data-step-row]').map(row=>({id:uid('STEP'),action:row.querySelector('[name="step_action"]')?.value.trim()||'',expected:row.querySelector('[name="step_expected"]')?.value.trim()||'',status:row.querySelector('[name="step_status"]')?.value||'Not Run',comments:row.querySelector('[name="step_comments"]')?.value||''})).filter(x=>x.action||x.expected||x.comments);if(!v.name.trim())return alert('Test case name is required');const obj={id:v.id,moduleId:v.moduleId,requirementId:v.requirementId,screenId:v.screenId,name:v.name.trim(),type:v.type,priority:v.priority,status:v.status,preconditions:v.preconditions,expectedResult:v.expectedResult,actualResult:v.actualResult,comments:v.comments,steps};const old=project.tests.find(x=>x.id===state.editing.id);if(old)Object.assign(old,obj);else project.tests.push(obj);saveProject(false);closeModal();render();showToast(old?'Test case updated':'Test case created');}
+function submitTestingModal(){const v=formValues();const steps=$$('#testStepsEditor [data-step-row]').map(row=>({id:uid('STEP'),action:row.querySelector('[name="step_action"]')?.value.trim()||'',expected:row.querySelector('[name="step_expected"]')?.value.trim()||'',status:row.querySelector('[name="step_status"]')?.value||'Not Run',comments:row.querySelector('[name="step_comments"]')?.value||''})).filter(x=>x.action||x.expected||x.comments);if(!v.name.trim())return alert('Test case name is required');const obj={id:v.id,moduleId:v.moduleId,requirementId:v.requirementId,screenId:v.screenId,name:v.name.trim(),type:v.type,priority:v.priority,status:v.status,preconditions:v.preconditions,expectedResult:v.expectedResult,actualResult:v.actualResult,comments:v.comments,steps};const old=project.tests.find(x=>x.id===state.editing.id);if(old)Object.assign(old,obj);else project.tests.push(obj); syncFormLinks('test',obj.id,v); project.comments ||= []; const u=currentUser()||{}; if(String(v.newComment||'').trim()) project.comments.push({id:uid('COM'),objectType:'test',objectId:obj.id,authorName:u.displayName||u.username||'User',commentText:String(v.newComment).trim(),createdAt:new Date().toISOString()}); steps.forEach(st=>{if(String(st.comments||'').trim()) project.comments.push({id:uid('COM'),objectType:'testing_step',objectId:st.id,authorName:u.displayName||u.username||'User',commentText:String(st.comments).trim(),createdAt:new Date().toISOString()});}); saveProject(false);closeModal();render();showToast(old?'Test case updated':'Test case created');}
 function renderValidation(){
   const issues=[];
   project.requirements.forEach(r=>{if(!r.actor)issues.push(["Requirement",r.id,"Missing actor"]);if(!r.acceptance)issues.push(["Requirement",r.id,"Missing acceptance criteria"])});
@@ -1158,7 +1153,18 @@ function modal(title,body,footer=`<button class="btn secondary" data-action="clo
 function closeModal(){$("#modalRoot").innerHTML=""}
 
 function commentsField(item,label="Comments / Design Notes"){
-  return `<div class="field full comment-field"><label>💬 ${label}</label><textarea name="comments" placeholder="Add assumptions, decisions, questions, review notes or implementation hints...">${esc(item?.comments||"")}</textarea><div class="field-hint">These notes stay attached to this design item and are included in JSON export.</div></div>`;
+  const id=item?.id||''; const entries=(project.comments||[]).filter(c=>c.objectId===id);
+  return `<div class="field full comment-field"><label>💬 ${label}</label><textarea name="comments" placeholder="Design notes / summary...">${esc(item?.comments||"")}</textarea><label style="margin-top:8px">Add attributed comment</label><textarea name="newComment" placeholder="Your comment will be saved with your username..."></textarea><div class="field-hint">${entries.length?entries.slice(0,8).map(c=>`<div><b>${esc(c.authorName||'User')}</b> · ${esc(fmtDate(c.createdAt))}: ${esc(c.commentText)}</div>`).join(''):'No attributed comments yet.'}</div></div>`;
+}
+function artifactLinkSelector(item,type,label,sourceType){
+ const existing=new Set((project.links||[]).filter(l=>l.sourceType===sourceType&&l.sourceId===item?.id&&l.targetType===type).map(l=>l.targetId));
+ const list=type==='screen'?project.screens:type==='logic'?project.logic:type==='test'?project.tests:type==='requirement'?project.requirements:type==='api'?project.apis:project.entities;
+ return `<div class="field"><label>${label}</label><select name="link_${type}" multiple size="4">${list.map(x=>`<option value="${esc(x.id)}" ${existing.has(x.id)?'selected':''}>${esc(x.id)} — ${esc(x.name||x.title||x.path||'')}</option>`).join('')}</select></div>`;
+}
+function syncFormLinks(sourceType,sourceId,v){
+ project.links ||= []; project.links=project.links.filter(l=>!(l.sourceType===sourceType&&l.sourceId===sourceId));
+ const targets=[['screen',v.link_screen||[]],['logic',v.link_logic||[]],['test',v.link_test||[]],['requirement',v.link_requirement||[]],['api',v.link_api||[]],['entity',v.link_entity||[]]];
+ targets.forEach(([type,ids])=>[].concat(ids||[]).forEach(targetId=>project.links.push({id:uid('LINK'),sourceType,sourceId,targetType:type,targetId,createdBy:currentUser()?.username||''})));
 }
 function addProjectComment(){
   modal("Project Comment",`<div class="form-grid"><div class="field full"><label>💬 Comment / Architecture Note</label><textarea name="comment" placeholder="Example: Confirm whether employee transfers need approval from both HR and Operations."></textarea></div></div>`, `<button class="btn secondary" data-action="close-modal">Cancel</button><button class="btn primary" data-action="submit-modal">Add Comment</button>`);
@@ -1170,11 +1176,11 @@ function renderCommentSummary(item){
 
 function requirementForm(item){
   item ||= {id:"",moduleId:state.moduleId||project.modules[0].id,title:"",actor:"",priority:"Medium",status:"Draft",description:"",rule:"",acceptance:""};
-  return `<div class="form-grid"><div class="field"><label>Requirement ID</label><input name="id" value="${esc(item.id)}" ${item.id?"readonly":""}></div><div class="field"><label>Module</label>${moduleSelector(item.moduleId)}</div><div class="field"><label>Title</label><input name="title" value="${esc(item.title)}"></div><div class="field"><label>Actor</label><input name="actor" value="${esc(item.actor)}"></div><div class="field"><label>Priority</label><select name="priority">${["Low","Medium","High","Critical"].map(x=>`<option ${x===item.priority?"selected":""}>${x}</option>`).join("")}</select></div><div class="field"><label>Status</label><select name="status">${["Draft","Review","Approved","Implemented"].map(x=>`<option ${x===item.status?"selected":""}>${x}</option>`).join("")}</select></div><div class="field full"><label>Description</label><textarea name="description">${esc(item.description)}</textarea></div><div class="field full"><label>Business Rule</label><textarea name="rule">${esc(item.rule)}</textarea></div><div class="field full"><label>Acceptance Criteria</label><textarea name="acceptance">${esc(item.acceptance)}</textarea></div>${commentsField(item)}</div>`;
+  return `<div class="form-grid"><div class="field"><label>Requirement ID</label><input name="id" value="${esc(item.id)}" ${item.id?"readonly":""}></div><div class="field"><label>Module</label>${moduleSelector(item.moduleId)}</div><div class="field"><label>Title</label><input name="title" value="${esc(item.title)}"></div><div class="field"><label>Actor</label><input name="actor" value="${esc(item.actor)}"></div><div class="field"><label>Priority</label><select name="priority">${["Low","Medium","High","Critical"].map(x=>`<option ${x===item.priority?"selected":""}>${x}</option>`).join("")}</select></div><div class="field"><label>Status</label><select name="status">${["Draft","Review","Approved","Implemented"].map(x=>`<option ${x===item.status?"selected":""}>${x}</option>`).join("")}</select></div><div class="field full"><label>Description</label><textarea name="description">${esc(item.description)}</textarea></div><div class="field full"><label>Business Rule</label><textarea name="rule">${esc(item.rule)}</textarea></div><div class="field full"><label>Acceptance Criteria</label><textarea name="acceptance">${esc(item.acceptance)}</textarea></div><div class="field full"><div class="card-title"><h3>Traceability Links</h3></div></div>${artifactLinkSelector(item,'screen','Linked Screens','requirement')}${artifactLinkSelector(item,'logic','Linked Backend Logic','requirement')}${artifactLinkSelector(item,'test','Linked Testing','requirement')}${commentsField(item)}</div>`;
 }
 function screenForm(item){
   item ||= {id:"",moduleId:state.moduleId||project.modules[0].id,name:"",type:"Form",status:"Draft",description:"",components:[]};
-  return `<div class="form-grid"><div class="field"><label>Screen ID</label><input name="id" value="${esc(item.id)}" ${item.id?"readonly":""}></div><div class="field"><label>Module</label>${moduleSelector(item.moduleId)}</div><div class="field"><label>Screen name</label><input name="name" value="${esc(item.name)}"></div><div class="field"><label>Type</label><select name="type">${["List","Form","Details","Dashboard","Approval","Report"].map(x=>`<option ${x===item.type?"selected":""}>${x}</option>`).join("")}</select></div><div class="field"><label>Status</label><select name="status">${["Draft","Review","Approved","Implemented"].map(x=>`<option ${x===item.status?"selected":""}>${x}</option>`).join("")}</select></div><div class="field full"><label>Description</label><textarea name="description">${esc(item.description)}</textarea></div>${commentsField(item)}</div>`;
+  return `<div class="form-grid"><div class="field"><label>Screen ID</label><input name="id" value="${esc(item.id)}" ${item.id?"readonly":""}></div><div class="field"><label>Module</label>${moduleSelector(item.moduleId)}</div><div class="field"><label>Screen name</label><input name="name" value="${esc(item.name)}"></div><div class="field"><label>Type</label><select name="type">${["List","Form","Details","Dashboard","Approval","Report"].map(x=>`<option ${x===item.type?"selected":""}>${x}</option>`).join("")}</select></div><div class="field"><label>Status</label><select name="status">${["Draft","Review","Approved","Implemented"].map(x=>`<option ${x===item.status?"selected":""}>${x}</option>`).join("")}</select></div><div class="field full"><label>Description</label><textarea name="description">${esc(item.description)}</textarea></div><div class="field full"><div class="card-title"><h3>Traceability Links</h3></div></div>${artifactLinkSelector(item,'requirement','Linked Requirements','screen')}${artifactLinkSelector(item,'logic','Linked Backend Logic','screen')}${artifactLinkSelector(item,'test','Linked Testing','screen')}${commentsField(item)}</div>`;
 }
 function entityForm(item){
   item ||= {id:"",name:"",moduleId:state.moduleId||project.modules[0].id,x:80,y:80,fields:[]};
@@ -1184,11 +1190,11 @@ function entityForm(item){
 function fieldEditor(f,i){return `<div class="form-grid three temp-field" style="padding:10px;border:1px solid var(--line);border-radius:9px;margin:7px 0"><div class="field"><label>Name</label><input name="fname" value="${esc(f.name)}"></div><div class="field"><label>Oracle Type</label><input name="ftype" value="${esc(f.type)}"></div><div class="field"><label>Options</label><div style="display:flex;gap:9px;flex-wrap:wrap"><label class="check"><input name="fpk" type="checkbox" ${f.pk?"checked":""}> PK</label><label class="check"><input name="ffk" type="checkbox" ${f.fk?"checked":""}> FK</label><label class="check"><input name="funique" type="checkbox" ${f.unique?"checked":""}> Unique</label></div></div></div>`}
 function apiForm(item){
   item ||= {id:"",moduleId:state.moduleId||project.modules[0].id,method:"POST",path:"/api/",name:"",permission:"",status:"Draft",description:"",inputs:"",rules:"",logic:""};
-  return `<div class="form-grid"><div class="field"><label>API ID</label><input name="id" value="${esc(item.id)}" ${item.id?"readonly":""}></div><div class="field"><label>Module</label>${moduleSelector(item.moduleId)}</div><div class="field"><label>Name</label><input name="name" value="${esc(item.name)}"></div><div class="field"><label>Method</label><select name="method">${["GET","POST","PUT","PATCH","DELETE"].map(x=>`<option ${x===item.method?"selected":""}>${x}</option>`).join("")}</select></div><div class="field full"><label>Path</label><input name="path" value="${esc(item.path)}"></div><div class="field"><label>Permission code</label><input name="permission" value="${esc(item.permission)}" placeholder="EMPLOYEE.CREATE"></div><div class="field"><label>Status</label><select name="status">${["Draft","Review","Approved","Implemented"].map(x=>`<option ${x===item.status?"selected":""}>${x}</option>`).join("")}</select></div><div class="field full"><label>Description</label><textarea name="description">${esc(item.description)}</textarea></div><div class="field full"><label>Inputs</label><textarea name="inputs">${esc(item.inputs)}</textarea></div><div class="field full"><label>Validation / Rules</label><textarea name="rules">${esc(item.rules)}</textarea></div><div class="field full"><label>Logic</label><textarea name="logic">${esc(item.logic)}</textarea></div>${commentsField(item)}</div>`;
+  return `<div class="form-grid"><div class="field"><label>API ID</label><input name="id" value="${esc(item.id)}" ${item.id?"readonly":""}></div><div class="field"><label>Module</label>${moduleSelector(item.moduleId)}</div><div class="field"><label>Name</label><input name="name" value="${esc(item.name)}"></div><div class="field"><label>Method</label><select name="method">${["GET","POST","PUT","PATCH","DELETE"].map(x=>`<option ${x===item.method?"selected":""}>${x}</option>`).join("")}</select></div><div class="field full"><label>Path</label><input name="path" value="${esc(item.path)}"></div><div class="field"><label>Permission code</label><input name="permission" value="${esc(item.permission)}" placeholder="EMPLOYEE.CREATE"></div><div class="field"><label>Status</label><select name="status">${["Draft","Review","Approved","Implemented"].map(x=>`<option ${x===item.status?"selected":""}>${x}</option>`).join("")}</select></div><div class="field full"><label>Description</label><textarea name="description">${esc(item.description)}</textarea></div><div class="field full"><label>Inputs</label><textarea name="inputs">${esc(item.inputs)}</textarea></div><div class="field full"><label>Validation / Rules</label><textarea name="rules">${esc(item.rules)}</textarea></div><div class="field full"><label>Logic</label><textarea name="logic">${esc(item.logic)}</textarea></div><div class="field full"><div class="card-title"><h3>Traceability Links</h3></div></div>${artifactLinkSelector(item,'requirement','Linked Requirements','api')}${artifactLinkSelector(item,'test','Linked Testing','api')}${commentsField(item)}</div>`;
 }
 function logicForm(item){
   item ||= {id:"",moduleId:state.moduleId||project.modules[0].id,name:"",trigger:"",steps:["Authenticate user","Authorize operation","Validate request","Execute business rules","Persist data","Audit","Respond"]};
-  return `<div class="form-grid"><div class="field"><label>Workflow ID</label><input name="id" value="${esc(item.id)}" ${item.id?"readonly":""}></div><div class="field"><label>Module</label>${moduleSelector(item.moduleId)}</div><div class="field full"><label>Name</label><input name="name" value="${esc(item.name)}"></div><div class="field full"><label>Trigger / API</label><input name="trigger" value="${esc(item.trigger)}"></div><div class="field full"><label>Steps (one per line)</label><textarea name="steps" style="min-height:180px">${esc(item.steps.join("\n"))}</textarea></div>${commentsField(item)}</div>`;
+  return `<div class="form-grid"><div class="field"><label>Workflow ID</label><input name="id" value="${esc(item.id)}" ${item.id?"readonly":""}></div><div class="field"><label>Module</label>${moduleSelector(item.moduleId)}</div><div class="field full"><label>Name</label><input name="name" value="${esc(item.name)}"></div><div class="field full"><label>Trigger / API</label><input name="trigger" value="${esc(item.trigger)}"></div><div class="field full"><label>Steps (one per line)</label><textarea name="steps" style="min-height:180px">${esc(item.steps.join("\n"))}</textarea></div><div class="field full"><div class="card-title"><h3>Traceability Links</h3></div></div>${artifactLinkSelector(item,'requirement','Linked Requirements','logic')}${artifactLinkSelector(item,'screen','Linked Screens','logic')}${artifactLinkSelector(item,'test','Linked Testing','logic')}${commentsField(item)}</div>`;
 }
 function moduleForm(item){
   item ||= {id:"",name:"",icon:"▦",color:"blue",description:""};
@@ -1196,7 +1202,7 @@ function moduleForm(item){
 }
 
 function formValues(){
-  const obj={}; $$("#modalRoot [name]").forEach(el=>{if(el.type==="checkbox")obj[el.name]=el.checked;else obj[el.name]=el.value}); return obj;
+  const obj={}; $$("#modalRoot [name]").forEach(el=>{if(el.type==="checkbox")obj[el.name]=el.checked;else if(el.multiple)obj[el.name]=[...el.selectedOptions].map(o=>o.value);else obj[el.name]=el.value}); return obj;
 }
 
 function compressReferenceImage(file){
@@ -1232,7 +1238,7 @@ function handleAction(action,id){
     case "new-user": state.editing={type:"user"};modal("New User",userForm());break;
     case "edit-user": state.editing={type:"user",id};modal("Edit User",userForm((project.security.users||[]).find(x=>x.id===id)));break;
     case "delete-user":
-      if(id==="USR-001"){showToast("The built-in admin cannot be deleted.");break;}
+      if(false){showToast("Built-in users cannot be deleted.");break;}
       if(confirm("Delete this user?")){project.security.users=(project.security.users||[]).filter(x=>x.id!==id);saveProject(false);renderAccess();showToast("User deleted");}
       break;
     case "new-role": state.editing={type:"role"};modal("New Role",roleForm());break;
@@ -1295,7 +1301,7 @@ function handleAction(action,id){
 function timelineForm(item){
   const d=new Date(); d.setDate(d.getDate()+7); const start=isoDate(d); const end=isoDate(addDays(d,4));
   item ||= {id:uid("PLAN"),moduleId:state.moduleId||project.modules[0]?.id,name:"",layer:"Requirements",phase:"Module Delivery",start,end,status:"Planned",priority:"Medium",owner:"",dependencies:"",short:"",comments:""};
-  return `<div class="form-grid"><div class="field"><label>Work item ID</label><input name="id" value="${esc(item.id)}" ${item.id&&item.id.startsWith('PLAN-')?'readonly':''}></div><div class="field"><label>Module</label>${moduleSelector(item.moduleId)}</div><div class="field full"><label>Work item name</label><input name="name" value="${esc(item.name)}" placeholder="Example: Personnel — Employee Form design"></div><div class="field"><label>Layer</label><select name="layer">${['Foundation','Requirements','Screens','ERD','Backend','UAT'].map(x=>`<option ${x===item.layer?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Phase</label><select name="phase">${['Foundation','Module Delivery','Integration & UAT','Go-Live'].map(x=>`<option ${x===item.phase?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Start</label><input type="date" name="start" value="${esc(item.start)}"></div><div class="field"><label>End</label><input type="date" name="end" value="${esc(item.end)}"></div><div class="field"><label>Status</label><select name="status">${['Planned','In Progress','Done','Blocked'].map(x=>`<option ${x===item.status?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Priority</label><select name="priority">${['Low','Medium','High','Critical'].map(x=>`<option ${x===item.priority?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Owner</label><input name="owner" value="${esc(item.owner||'')}" placeholder="Team / role"></div><div class="field"><label>Dependencies</label><input name="dependencies" value="${esc(item.dependencies||'')}" placeholder="PLAN-001, PLAN-002"></div><div class="field full"><label>Timeline label</label><input name="short" value="${esc(item.short||'')}" placeholder="Short text shown on the Gantt bar"></div><div class="field full"><label>💬 Comments / Planning notes</label><textarea name="comments" placeholder="Assumptions, staffing notes, risks, blockers, review comments...">${esc(item.comments||'')}</textarea></div></div>`;
+  return `<div class="form-grid"><div class="field"><label>Work item ID</label><input name="id" value="${esc(item.id)}" ${item.id&&item.id.startsWith('PLAN-')?'readonly':''}></div><div class="field"><label>Module</label>${moduleSelector(item.moduleId)}</div><div class="field full"><label>Work item name</label><input name="name" value="${esc(item.name)}" placeholder="Example: Personnel — Employee Form design"></div><div class="field"><label>Layer</label><select name="layer">${['Foundation','Requirements','Screens','ERD','Backend','UAT'].map(x=>`<option ${x===item.layer?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Phase</label><select name="phase">${['Foundation','Module Delivery','Integration & UAT','Go-Live'].map(x=>`<option ${x===item.phase?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Start</label><input type="date" name="start" value="${esc(item.start)}"></div><div class="field"><label>End</label><input type="date" name="end" value="${esc(item.end)}"></div><div class="field"><label>Status</label><select name="status">${['Planned','In Progress','Done','Blocked'].map(x=>`<option ${x===item.status?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Priority</label><select name="priority">${['Low','Medium','High','Critical'].map(x=>`<option ${x===item.priority?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Owner / Assignee</label><select name="assigneeId"><option value="">— Unassigned —</option>${(project.security?.users||[]).map(u=>`<option value="${esc(u.id)}" ${u.id===item.assigneeId?'selected':''}>${esc(u.displayName||u.username)}</option>`).join('')}</select></div><div class="field"><label>Dependencies</label><input name="dependencies" value="${esc(item.dependencies||'')}" placeholder="PLAN-001, PLAN-002"></div><div class="field full"><label>Timeline label</label><input name="short" value="${esc(item.short||'')}" placeholder="Short text shown on the Gantt bar"></div><div class="field full"><label>Connected design items</label><select name="taskLinks" multiple size="6">${[...project.requirements.map(x=>['Requirement',x.id,x.title]),...project.screens.map(x=>['Screen',x.id,x.name]),...project.logic.map(x=>['Backend',x.id,x.name]),...project.tests.map(x=>['Testing',x.id,x.name]),...project.entities.map(x=>['ERD',x.id,x.name])].map(([ty,id,n])=>{const on=(project.taskLinks||[]).some(l=>l.taskId===item.id&&l.objectType===ty&&l.objectId===id);return `<option value="${esc(ty+'::'+id)}" ${on?'selected':''}>${esc(ty)} — ${esc(n)}</option>`}).join('')}</select></div>${commentsField(item,"Planning notes / comments")}</div>`;
 }
 
 function relationForm(item){
@@ -1360,7 +1366,7 @@ async function submitModal(){
     const username=String(v.username||"").trim().toLowerCase();
     const displayName=String(v.displayName||"").trim()||username;
     if(!username)return alert("Username is required");
-    if(state.editing.id==="USR-001" && username!=="admin")return alert("The built-in admin username cannot be changed.");
+    
     const duplicate=(project.security.users||[]).some(u=>u.id!==state.editing.id && String(u.username||"").trim().toLowerCase()===username);
     if(duplicate)return alert("Username already exists.");
     const old=(project.security.users||[]).find(x=>x.id===state.editing.id);
@@ -1372,12 +1378,18 @@ async function submitModal(){
   } else if(t==="timeline"){
     if(!v.id||!v.name||!v.start||!v.end)return alert("Timeline item, start and end are required");
     if(v.end<v.start)return alert("End date must be on or after start date");
-    const obj={id:v.id,moduleId:v.moduleId||null,name:v.name,layer:v.layer,phase:v.phase,start:v.start,end:v.end,status:v.status,priority:v.priority,owner:v.owner,dependencies:v.dependencies,short:v.short,comments:v.comments||""};
+    const uAss=(project.security?.users||[]).find(u=>u.id===v.assigneeId); const obj={id:v.id,moduleId:v.moduleId||null,name:v.name,layer:v.layer,phase:v.phase,start:v.start,end:v.end,status:v.status,priority:v.priority,owner:v.owner||'',assigneeId:v.assigneeId||null,assigneeName:uAss?.displayName||uAss?.username||'',dependencies:v.dependencies,short:v.short,comments:v.comments||""};
     const old=(project.timeline||[]).find(x=>x.id===state.editing.id); if(old)Object.assign(old,obj);else (project.timeline ||= []).push(obj);
   } else if(t==="logic"){
     const obj={id:v.id,moduleId:v.moduleId,name:v.name,trigger:v.trigger,comments:v.comments||"",steps:v.steps.split("\n").map(x=>x.trim()).filter(Boolean)};
     if(!obj.id||!obj.name)return alert("Workflow ID and name are required");
     const old=project.logic.find(x=>x.id===state.editing.id);if(old)Object.assign(old,obj);else project.logic.push(obj);
+  }
+  if(t!=="project-comment"){
+    const sourceType={requirement:'requirement',screen:'screen',api:'api',logic:'logic',test:'test',timeline:'task',entity:'entity',relation:'relation',module:'module'}[t]; const sourceId=state.editing.id||v.id;
+    if(sourceType&&sourceId&&sourceType!=='task') syncFormLinks(sourceType,sourceId,v);
+    if(t==='timeline'&&sourceId){ project.taskLinks ||= []; project.taskLinks=project.taskLinks.filter(l=>l.taskId!==sourceId); [].concat(v.taskLinks||[]).forEach(token=>{const [objectType,objectId]=String(token).split('::'); if(objectType&&objectId)project.taskLinks.push({taskId:sourceId,objectType,objectId,createdBy:currentUser()?.username||''});}); }
+    if(String(v.newComment||'').trim()){ project.comments ||= []; const u=currentUser()||{}; project.comments.push({id:uid('COM'),objectType:sourceType||t,objectId:sourceId||project.project.id,authorName:u.displayName||u.username||'User',commentText:String(v.newComment).trim(),createdAt:new Date().toISOString()}); }
   }
   saveProject(false);closeModal();render();showToast("Saved");
 }
@@ -1386,26 +1398,15 @@ function downloadDocumentation(){
   const html=`<!doctype html><html><head><meta charset="utf-8"><title>${esc(project.project.name)}</title><style>body{font-family:Arial;color:#172238;padding:35px}h1{color:#315ee8}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f3f5f8}.module{margin:30px 0}</style></head><body><h1>${esc(project.project.name)}</h1><p>${esc(project.project.description)}</p><h2>Modules</h2><ul>${project.modules.map(m=>`<li>${esc(m.name)} — ${esc(m.description)}</li>`).join("")}</ul><h2>Requirements</h2><table><tr><th>ID</th><th>Module</th><th>Title</th><th>Actor</th><th>Status</th></tr>${project.requirements.map(r=>`<tr><td>${esc(r.id)}</td><td>${esc(moduleById(r.moduleId)?.name)}</td><td>${esc(r.title)}</td><td>${esc(r.actor)}</td><td>${esc(r.status)}</td></tr>`).join("")}</table><h2>Entities</h2><ul>${project.entities.map(e=>`<li><strong>${esc(e.name)}</strong>: ${e.fields.map(f=>esc(f.name)).join(", ")}</li>`).join("")}</ul><h2>APIs</h2><ul>${project.apis.map(a=>`<li><strong>${esc(a.method)} ${esc(a.path)}</strong> — ${esc(a.permission)}</li>`).join("")}</ul></body></html>`;
   const blob=new Blob([html],{type:"text/html"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="system-design-documentation.html";a.click();URL.revokeObjectURL(a.href);showToast("Documentation exported");
 }
-function exportTraceability(){
-  let csv="Requirement,Module,Screen,ERD,API,Logic\n";
-  project.requirements.forEach(r=>{csv+=`"${r.id}","${moduleById(r.moduleId)?.name||""}",${project.screens.some(s=>s.moduleId===r.moduleId)},${project.entities.some(e=>e.moduleId===r.moduleId)},${project.apis.some(a=>a.moduleId===r.moduleId)},${project.logic.some(l=>l.moduleId===r.moduleId)}\n`});
-  const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download="traceability.csv";a.click();URL.revokeObjectURL(a.href);
-}
+function exportTraceability(){let csv='Requirement,Module,Screens,ERD,APIs,Logic,Testing\n';const links=project.links||[];project.requirements.forEach(r=>{const ids=t=>links.filter(l=>l.sourceType==='requirement'&&l.sourceId===r.id&&l.targetType===t).map(l=>l.targetId).join(' | ');csv+=`"${r.id}","${moduleById(r.moduleId)?.name||''}","${ids('screen')}","${ids('entity')}","${ids('api')}","${ids('logic')}","${ids('test')}"\n`;});const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='traceability.csv';a.click();URL.revokeObjectURL(a.href);}
 
 
 /* ================= SECURITY / ACCESS CONTROL ================= */
 const AUTH_KEY = "enterpriseDesignStudioAuth";
 function securityDefaults(){
   project.security ||= {};
-  // Authentication is intentionally limited to one hardcoded application user.
-  // CockroachDB API verifies the application password; the application exposes username only.
-  project.security.users ||= [
-    {id:"USR-001",username:"admin",displayName:"System Administrator",role:"Administrator",active:true,password:"123",comments:"Default administrator account. Change this password after first login."}
-  ];
-  // Always keep the built-in admin available, but do not overwrite users created by the administrator.
-  if(!project.security.users.some(u=>String(u.username||"").trim().toLowerCase()==="admin")){
-    project.security.users.unshift({id:"USR-001",username:"admin",displayName:"System Administrator",role:"Administrator",active:true,password:"123",comments:"Default administrator account."});
-  }
+  // Users are managed in CockroachDB. Never inject or require a hard-coded username.
+  project.security.users ||= [];
   project.security.roles ||= [
     {id:"ADMIN",name:"Administrator",description:"Full access to all design and security features."},
     {id:"ARCH",name:"Architect",description:"Design, edit and manage technical artifacts."},
@@ -1474,7 +1475,74 @@ function renderLogin(){
   document.body.innerHTML=`<div class="login-shell"><div class="login-orb orb-a"></div><div class="login-orb orb-b"></div><div class="login-card">
     <div class="login-brand"><div class="brand-mark">ES</div><div><b>Enterprise System</b><span>Design Studio</span></div></div>
     <div class="login-heading"><span class="eyebrow">SECURE WORKSPACE</span><h1>Sign in to your project</h1><p>Sign in with your IBS account.</p></div>
-    <form id="loginForm" class="login-form"><label>Username<input name="username" type="text" autocomplete="username" value="admin" readonly required></label><label>Password<div class="password-wrap"><input id="loginPassword" name="password" type="password" autocomplete="current-password" placeholder="Enter password" required><button type="button" id="togglePassword">Show</button></div></label><div id="loginError" class="login-error"></div><button class="btn primary login-btn">Sign In</button><p class="login-help">Username-only login. The only application account is <b>admin</b>. No email address is requested or displayed.</p></form>
+    <form id="loginForm" class="login-form"><label>Username<input name="username" type="text" autocomplete="username" placeholder="Enter your username" required></label><label>Password<div class="password-wrap"><input id="loginPassword" name="password" type="password" autocomplete="current-password" placeholder="Enter password" required><button type="button" id="togglePassword">Show</button></div></label><div id="loginError" class="login-error"></div><button class="btn primary login-btn">Sign In</button><p class="login-help">Sign in with any active IBS account. The administrator username is configurable by the system owner.</p></form>
+    
+  </div></div>`;
+  $("#loginForm").onsubmit=async e=>{
+    e.preventDefault(); const btn=e.currentTarget.querySelector("button.login-btn"); btn.disabled=true;
+    $("#loginError").textContent="";
+    try{
+      const f=new FormData(e.currentTarget);
+      await supabaseLogin(String(f.get("username")).trim(),String(f.get("password")));
+      location.reload();
+    }catch(err){$("#loginError").textContent=String(err.message||err);btn.disabled=false;}
+  };
+  $("#togglePassword").onclick=()=>{const i=$("#loginPassword");i.type=i.type==="password"?"text":"password";$("#togglePassword").textContent=i.type==="password"?"Show":"Hide";};
+}
+function hasAccess(permission,moduleId=null){
+  const u=currentUser(); if(!u)return false;
+  if(u.role==="Administrator")return true;
+  const map={Architect:"ARCH",Designer:"DESIGNER",Viewer:"VIEWER"}; const role=map[u.role]||"VIEWER";
+  if(moduleId && project.security?.moduleAccess?.[moduleId]?.[role]===false)return false;
+  if(u.role==="Viewer")return permission.endsWith(".VIEW") || permission==="PROJECT.VIEW";
+  if(u.role==="Architect")return permission!=="SECURITY.EDIT";
+  return true;
+}
+function currentUser(){
+  if(typeof localAuthUser!=="undefined" && localAuthUser) return localAuthUser;
+  if(typeof useLocalAdminFallback==="function"){
+    const u=useLocalAdminFallback();
+    if(u)return u;
+  }
+  return null;
+}
+async function logout(){
+  if(typeof supabaseLogout==="function") await supabaseLogout();
+  else location.reload();
+}
+window.logout=logout;
+
+function setView(view,moduleId=null){
+  if(view==='access' && !hasAccess('SECURITY.VIEW')){showToast('You do not have security-center access');return;}
+  if(['requirements','screens','erd','project-erd','backend','modules','timeline'].includes(view) && currentUser()?.role==='Viewer' && view==='modules'){/* allowed read-only */}
+  if(moduleId && project.security?.moduleAccess){
+    const u=currentUser(); const roleKey={Administrator:'ADMIN',Architect:'ARCH',Designer:'DESIGNER',Viewer:'VIEWER'}; const role=roleKey[u?.role]||'VIEWER';
+    if(project.security.moduleAccess[moduleId]?.[role]===false){showToast('Your role does not have access to this module');return;}
+  }
+  state.view=view; if(moduleId!==null) state.moduleId=moduleId;
+  if(view!=='screens'){state.screenId=null;state.selectedComponentId=null;}
+  if(view!=='timeline')state.timelineFilter=null;
+  if(view!=='module-workspace')state.tab='requirements';
+  render();
+}
+function nav(){
+  const u=currentUser(); const roleKey={Administrator:'ADMIN',Architect:'ARCH',Designer:'DESIGNER',Viewer:'VIEWER'}; const role=roleKey[u?.role]||'VIEWER';
+  const can=(id)=>{
+    if(id==='access'||id==='settings') return role==='ADMIN';
+    if(['backend','erd','project-erd','screens','requirements','modules','timeline','architecture','technical','traceability','validation','testing','documentation','references','dashboard'].includes(id)) return true;
+    return true;
+  };
+  const moduleId=state.moduleId;
+  $('#sidebarNav').innerHTML=navSections.map(sec=>`<div class="nav-section">${sec.title}</div>${sec.items.filter(([id])=>can(id)).map(([id,icon,label])=>`<button class="nav-item ${state.view===id?'active':''}" data-view="${id}"><span class="nav-icon">${icon}</span><span>${label}</span></button>`).join('')}`).join('');
+  $$('.nav-item[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));
+  $('#sidebarProjectName').textContent=project.project.name;
+}
+
+function renderLogin(){
+  document.body.innerHTML=`<div class="login-shell"><div class="login-orb orb-a"></div><div class="login-orb orb-b"></div><div class="login-card">
+    <div class="login-brand"><div class="brand-mark">ES</div><div><b>Enterprise System</b><span>Design Studio</span></div></div>
+    <div class="login-heading"><span class="eyebrow">SECURE WORKSPACE</span><h1>Sign in to your project</h1><p>Sign in with your IBS account.</p></div>
+    <form id="loginForm" class="login-form"><label>Username<input name="username" type="text" autocomplete="username" placeholder="Enter your username" required></label><label>Password<div class="password-wrap"><input id="loginPassword" name="password" type="password" autocomplete="current-password" placeholder="Enter password" required><button type="button" id="togglePassword">Show</button></div></label><div id="loginError" class="login-error"></div><button class="btn primary login-btn">Sign In</button><p class="login-help">Sign in with any active IBS account. The administrator username is configurable by the system owner.</p></form>
     
   </div></div>`;
   $("#loginForm").onsubmit=async e=>{
@@ -1506,7 +1574,7 @@ function renderAccess(){
     const fixed=user.id==="USR-001";
     return `<tr><td><div class="user-cell"><div class="avatar">${esc((user.displayName||user.username||"?").slice(0,1).toUpperCase())}</div><div><b>${esc(user.displayName||user.username)}</b><small>@${esc(user.username)}</small></div></div></td><td><span class="role-badge">${esc(user.role||"Viewer")}</span></td><td><span class="status-chip ${user.active===false?'warn':'ok'}">${user.active===false?'Disabled':'Active'}</span></td><td>${fixed?'Built-in administrator account.':'Application user; password is managed inside this application.'}</td><td>${fixed?'<span class="muted small-text">Fixed</span>':`<button class="btn secondary btn-sm" data-action="edit-user" data-id="${esc(user.id)}">Edit</button> <button class="btn danger btn-sm" data-action="delete-user" data-id="${esc(user.id)}">Delete</button>`}</td></tr>`;
   }).join('');
-  $("#content").innerHTML=`<div class="access-header card"><div><span class="eyebrow">SECURITY CENTER</span><h2>Users & access</h2><p class="muted">Simple application login. Start with <b>admin / 123</b>, then create additional users here. No email account is required.</p></div></div><div class="access-tabs"><button class="access-tab active" data-access-tab="users">Users</button><button class="access-tab" data-access-tab="roles">Roles</button><button class="access-tab" data-access-tab="modules">Modules</button><button class="access-tab" data-access-tab="navigation">Navigation</button></div><div id="accessPanel"><div class="card"><div class="card-title"><div><h2>Application users</h2><span class="muted small-text">Usernames and passwords are managed directly in the project.</span></div><button class="btn primary" data-action="new-user" ${role!=="ADMIN"?'disabled':''}>＋ New User</button></div><div class="table-wrap"><table class="data-table"><thead><tr><th>User</th><th>Role</th><th>Status</th><th>Notes</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table></div></div></div>`;
+  $("#content").innerHTML=`<div class="access-header card"><div><span class="eyebrow">SECURITY CENTER</span><h2>Users & access</h2><p class="muted">Usernames and passwords are managed in the CockroachDB workspace. Create additional users here; no email account is required.</p></div></div><div class="access-tabs"><button class="access-tab active" data-access-tab="users">Users</button><button class="access-tab" data-access-tab="roles">Roles</button><button class="access-tab" data-access-tab="modules">Modules</button><button class="access-tab" data-access-tab="navigation">Navigation</button></div><div id="accessPanel"><div class="card"><div class="card-title"><div><h2>Application users</h2><span class="muted small-text">Usernames and passwords are managed directly in the project.</span></div><button class="btn primary" data-action="new-user" ${role!=="ADMIN"?'disabled':''}>＋ New User</button></div><div class="table-wrap"><table class="data-table"><thead><tr><th>User</th><th>Role</th><th>Status</th><th>Notes</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table></div></div></div>`;
   $$("[data-access-tab]").forEach(b=>b.onclick=()=>switchAccessTab(b.dataset.accessTab));
   bindActions();
 }
