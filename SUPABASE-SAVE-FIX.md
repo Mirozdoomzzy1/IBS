@@ -26,3 +26,8 @@ Common errors:
 - `CONFLICT` → another browser changed the project; reload and save again.
 
 The app no longer requires Supabase Auth for the shared project.
+
+
+## Build 20260821-3
+
+The browser save path now uses the official `@supabase/supabase-js` client. It first calls the relational RPC and falls back to `public.projects.data` if the RPC is not installed yet. This avoids depending on the hand-written browser REST save implementation.

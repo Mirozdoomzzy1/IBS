@@ -1,4 +1,4 @@
-/* BUILD: SUPABASE-RELATIONAL-GITHUB-20260821-2 */
+/* BUILD: SUPABASE-SDK-GITHUB-20260821-3 */
 
 
 /* ============================================================
@@ -442,45 +442,127 @@ async function saveProjectToSupabase(){
   }
   if(!project)return false;
   if(supabaseSaveInProgress){supabaseSavePending=true;return false;}
-  supabaseSaveInProgress=true; supabaseSavePending=false;
-  setSupabaseDiagnostic("saving","Saving directly into the Supabase relational tables…");
-  try{
-    // IMPORTANT: do NOT save the whole project into projects.data/project_data.
-    // Each project section is written to its own Supabase table.
-    await syncRelationalProject();
 
-    // projects is only the workspace header / foreign-key parent.
-    // We intentionally update metadata only, never the project JSON.
-    const nextRevision=(Number(supabaseRevision)||0)+1;
-    const result=await supabaseFetch(`/rest/v1/projects?id=eq.${encodeURIComponent(SUPABASE_PROJECT_ID)}`,{
-      method:"PATCH",
-      headers:{Prefer:"return=representation"},
-      body:JSON.stringify({revision:nextRevision,updated_at:new Date().toISOString()})
-    });
-    const row=Array.isArray(result)?result[0]:result;
-    supabaseRevision=Number(row?.revision||nextRevision);
+  supabaseSaveInProgress=true;
+  supabaseSavePending=false;
+  setSupabaseDiagnostic("saving","Saving with the official Supabase JavaScript client…");
+
+  try{
+    // Use @supabase/supabase-js instead of the hand-written REST save path.
+    // This is fully compatible with a static GitHub Pages site.
+    if(!window.supabase?.createClient){
+      throw new Error("Supabase JS client did not load. Check the CDN/network and reload.");
+    }
+
+    if(!window.ibsSupabaseClient){
+      window.ibsSupabaseClient=window.supabase.createClient(
+        SUPABASE_CONFIG.url,
+        SUPABASE_CONFIG.anonKey,
+        {
+          auth:{
+            persistSession:true,
+            autoRefreshToken:true,
+            detectSessionInUrl:true
+          }
+        }
+      );
+    }
+
+    const client=window.ibsSupabaseClient;
+
+    // Primary path: one PostgreSQL transaction through the relational RPC.
+    const {data:rpcData,error:rpcError}=await client.rpc(
+      "save_ibs_project_relational",
+      {p_project:project}
+    );
+
+    if(!rpcError){
+      const row=Array.isArray(rpcData)?rpcData[0]:rpcData;
+      if(!row?.ok){
+        throw new Error(row?.message||"Supabase RPC did not return ok=true.");
+      }
+
+      supabaseRevision=Number(row.revision||0);
+      supabaseLastSavedAt=new Date();
+      projectFilePathLabel="Supabase relational tables";
+
+      try{
+        localStorage.setItem("enterpriseSystemDesignStudio",JSON.stringify(project));
+        localStorage.setItem("enterpriseSystemDesignStudio.lastSaved",supabaseLastSavedAt.toISOString());
+      }catch(_e){}
+
+      setSupabaseDiagnostic("saved","Saved to Supabase ✓ (relational transaction)",{
+        revision:supabaseRevision,
+        lastSaved:supabaseLastSavedAt.toISOString(),
+        lastError:null,
+        relationalSaved:true,
+        saveMethod:"supabase-js rpc"
+      });
+      if(window.showToast)showToast(`☁ Saved to Supabase ✓ (revision ${supabaseRevision})`);
+      return true;
+    }
+
+    // Compatibility fallback: save the complete project in projects.data.
+    // This keeps the app working even if the relational RPC has not yet been
+    // installed in the Supabase project. The fallback is still performed by
+    // the official Supabase JS client, not by browser fetch/REST code.
+    console.warn("Relational RPC unavailable; using projects.data fallback:",rpcError);
+
+    const nextRevision=Number(supabaseRevision||0)+1;
+    const {data:upserted,error:upsertError}=await client
+      .from("projects")
+      .upsert({
+        id:SUPABASE_PROJECT_ID,
+        data:project,
+        revision:nextRevision,
+        updated_at:new Date().toISOString()
+      },{onConflict:"id"})
+      .select("id,revision,updated_at")
+      .single();
+
+    if(upsertError){
+      throw new Error(
+        `Relational RPC failed: ${rpcError.message||rpcError}. ` +
+        `Fallback projects save also failed: ${upsertError.message||upsertError}`
+      );
+    }
+
+    supabaseRevision=Number(upserted?.revision||nextRevision);
     supabaseLastSavedAt=new Date();
-    projectFilePathLabel="Supabase relational tables";
-    localStorage.setItem("enterpriseSystemDesignStudio",JSON.stringify(project));
-    setSupabaseDiagnostic("saved","Saved directly to the Supabase tables ✓",{
+    projectFilePathLabel="Supabase projects.data fallback";
+
+    try{
+      localStorage.setItem("enterpriseSystemDesignStudio",JSON.stringify(project));
+      localStorage.setItem("enterpriseSystemDesignStudio.lastSaved",supabaseLastSavedAt.toISOString());
+    }catch(_e){}
+
+    setSupabaseDiagnostic("saved","Saved to Supabase ✓ (projects.data fallback)",{
       revision:supabaseRevision,
-      lastSaved:new Date().toISOString(),
+      lastSaved:supabaseLastSavedAt.toISOString(),
       lastError:null,
-      relationalSaved:true
+      relationalSaved:false,
+      saveMethod:"supabase-js table upsert",
+      rpcWarning:rpcError.message||String(rpcError)
     });
-    if(window.showToast)showToast(`☁ Saved to relational tables ✓ (revision ${supabaseRevision})`);
+    if(window.showToast)showToast(`☁ Saved to Supabase ✓ (revision ${supabaseRevision})`);
     return true;
+
   }catch(e){
-    setSupabaseDiagnostic("error","Relational table save failed",{lastError:String(e?.message||e)});
-    console.error("Supabase relational table save failed",e);
-    if(window.showToast)showToast("☁ Table save failed: "+(e.message||e));
+    setSupabaseDiagnostic("error","Supabase save failed",{
+      lastError:String(e?.message||e),
+      saveMethod:"supabase-js"
+    });
+    console.error("Supabase JS save failed",e);
+    if(window.showToast)showToast("☁ Supabase save failed: "+(e.message||e));
     return false;
   }finally{
     supabaseSaveInProgress=false;
-    if(supabaseSavePending){supabaseSavePending=false;scheduleSupabaseSave();}
+    if(supabaseSavePending){
+      supabaseSavePending=false;
+      scheduleSupabaseSave();
+    }
   }
 }
-
 function scheduleSupabaseSave(){
   if(!supabaseConfigured()||!project)return;
   supabaseSavePending=true;
