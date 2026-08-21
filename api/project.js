@@ -1,4 +1,4 @@
-import {db,json,cors,withTx} from './_db.js';
+import {db,json,cors,withTx,withClient} from './_db.js';
 import {requireAuth} from './_auth.js';
 import bcrypt from 'bcryptjs';
 
@@ -95,8 +95,12 @@ export default async function handler(req,res){
   try{
     const user=actor(req);
     if(req.method==='GET'){
-      const out=await loadProject(db());
-      if(!out)return json(res,404,{error:'Project not found.'});
+      // Use one DB connection for the entire normalized read. The previous
+      // implementation launched ~20 queries through the pool simultaneously,
+      // which could queue behind CockroachDB/serverless connection setup and
+      // hit Vercel's 30s function limit.
+      const out=await withClient(async c=>loadProject(c));
+      if(!out)return json(res,404,{error:'Project not found.',projectId:PROJECT_ID});
       return json(res,200,out);
     }
     if(req.method==='PUT'){
