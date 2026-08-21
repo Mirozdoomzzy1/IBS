@@ -123,7 +123,7 @@ async function supabaseFetch(path,options={}){
   if(path.startsWith('/rest/v1/rpc/add_ibs_comment'))return cockroachFetch('/comment',{method:'POST',body:options.body||'{}'});
   throw new Error('Legacy Supabase endpoint is no longer supported: '+path);
 }
-function restoreSupabaseSession(){try{const raw=localStorage.getItem(SUPABASE_SESSION_KEY);if(raw){const x=JSON.parse(raw);if(x?.access_token){supabaseSession=x;return x}}}catch{}return null}
+function restoreSupabaseSession(){try{const raw=localStorage.getItem(SUPABASE_SESSION_KEY);if(raw){const x=JSON.parse(raw);if(x?.access_token){supabaseSession=x;supabaseAuthUser=x.user||null;localAuthUser=x.user||null;return x}}}catch(e){console.warn("Could not restore CockroachDB session",e)}return null}
 async function supabaseLogin(username,password){
   const r=await cockroachFetch('/login',{method:'POST',body:JSON.stringify({username,password})});
   supabaseSession={access_token:r.token,user:r.user};supabaseAuthUser=r.user;localAuthUser=r.user;
