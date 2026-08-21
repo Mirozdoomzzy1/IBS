@@ -87,6 +87,7 @@ const DEFAULT_PROJECT = {
   logic: [
     {id:"LOGIC-PER-001",moduleId:"PERSONNEL",name:"Create Employee Workflow",trigger:"POST /api/personnel/employees",steps:["Authenticate user","Check EMPLOYEE.CREATE permission","Validate request","Check employee number uniqueness","Check department and position","Insert EMPLOYEE","Write audit log","Return 201 Created"]}
   ],
+  tests: [],
   settings: {autosave:true, gridSize:24, showHints:true}
 };
 
@@ -376,6 +377,8 @@ function seedNewModuleArtifacts(){
 }
 
 function normalizeProject(){
+  project.tests ||= [];
+  project.tests.forEach(t=>{t.steps ||= []; t.comments ||= ""; t.status ||= "Not Run"; t.type ||= "Functional"; t.priority ||= "Medium";});
   project.modules ||= [];
   ensureRequiredModules();
   project.requirements ||= [];

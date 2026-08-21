@@ -29,7 +29,8 @@ const navSections = [
     ["backend","⚙","Backend Logic"],
     ["tasks","☷","Tasks & Traceability"],
     ["traceability","↗","Traceability"],
-    ["validation","✓","Validation"]
+    ["validation","✓","Validation"],
+    ["testing","🧪","Testing"]
   ]},
   {title:"SECURITY", items:[
     ["access","🔐","Users & Access"],
@@ -89,7 +90,7 @@ function showToast(msg){
 function moduleById(id){ return project.modules.find(m=>m.id===id); }
 function counts(moduleId){
   const f=a=>moduleId ? a.filter(x=>x.moduleId===moduleId).length : a.length;
-  return {requirements:f(project.requirements),screens:f(project.screens),entities:f(project.entities),apis:f(project.apis),logic:f(project.logic)};
+  return {requirements:f(project.requirements),screens:f(project.screens),entities:f(project.entities),apis:f(project.apis),logic:f(project.logic),tests:f(project.tests||[])};
 }
 function setView(view,moduleId=null){
   state.view=view; state.moduleId=moduleId;
@@ -132,7 +133,7 @@ function normalizeDesignData(){
 
 function normalizeComments(){
   project.project.comments ||= "";
-  ["modules","requirements","screens","entities","relations","apis","logic"].forEach(k=>project[k].forEach(x=>x.comments ||= ""));
+  ["modules","requirements","screens","entities","relations","apis","logic","tests"].forEach(k=>project[k].forEach(x=>x.comments ||= ""));
 }
 
 function render(){
@@ -142,14 +143,14 @@ function render(){
   const titles={
     dashboard:"Design Studio",timeline:"Timeline / Project Plan",architecture:"Architecture Map",technical:"Technical Architecture",modules:"System Blueprint",requirements:"Business Requirements",
     "module-workspace":"Module Workspace",screens:"Screen Designer",erd:"Module ERD","project-erd":"Full Project ERD",backend:"Backend Logic",
-    tasks:"Tasks & Traceability",traceability:"Traceability",validation:"Validation",documentation:"Documentation",settings:"Settings",access:"Users & Access",audit:"Audit Log",references:"Reference Images"
+    tasks:"Tasks & Traceability",traceability:"Traceability",validation:"Validation",testing:"Testing",documentation:"Documentation",settings:"Settings",access:"Users & Access",audit:"Audit Log",references:"Reference Images"
   };
   $("#pageTitle").textContent=titles[state.view] || "Design Studio";
   $("#breadcrumb").textContent = state.moduleId ? `${titles[state.view]} / ${moduleById(state.moduleId)?.name||""}` : titles[state.view];
   const handlers={
     dashboard:renderDashboard,timeline:renderTimeline,architecture:renderArchitecture,technical:renderTechnicalArchitecture,modules:renderModules,"module-workspace":renderModuleWorkspace,requirements:renderRequirements,
     screens:renderScreens,references:renderReferences,erd:renderERD,"project-erd":renderProjectERD,backend:renderBackend,tasks:renderTasks,traceability:renderTraceability,
-    validation:renderValidation,documentation:renderDocumentation,settings:renderSettings,access:renderAccess,audit:renderAudit
+    validation:renderValidation,testing:renderTesting,documentation:renderDocumentation,settings:renderSettings,access:renderAccess,audit:renderAudit
   };
   handlers[state.view]();
   addQuickNavCarousel();
@@ -159,7 +160,13 @@ function render(){
 function bindActions(){
   $$("[data-view]").forEach(el=>el.onclick=()=>setView(el.dataset.view));
   $$("[data-action]").forEach(el=>el.onclick=()=>handleAction(el.dataset.action,el.dataset.id));
-  $$("[data-module]").forEach(el=>el.onclick=()=>setView(el.dataset.target||state.view,el.dataset.module));
+  $$('[data-module]').forEach(el=>el.onclick=()=>{
+    const target=el.dataset.target||state.view;
+    if(target==='module-workspace' && el.dataset.stage){
+      state.view='module-workspace'; state.moduleId=el.dataset.module||state.moduleId; state.tab=el.dataset.stage; render(); return;
+    }
+    setView(target,el.dataset.module);
+  });
   $$("[data-entity]").forEach(el=>el.onclick=()=>{state.erdModule=moduleById(project.entities.find(e=>e.id===el.dataset.entity)?.moduleId)?.id||"ALL";setView("erd");});
   $$("[data-tab]").forEach(el=>el.onclick=()=>{state.tab=el.dataset.tab; render();});
 }
@@ -180,6 +187,7 @@ function addQuickNavCarousel(){
     ["technical","⬡","Technical","React + TS + Oracle"],
     ["traceability","↗","Traceability","End-to-end links"],
     ["validation","✓","Validation","Quality gates"],
+    ["testing","🧪","Testing","Test cases & steps"],
     ["documentation","▥","Documentation","Project docs"],
     ["settings","⚙","Settings","Studio settings"]
   ];
@@ -454,14 +462,15 @@ function moduleStageStatus(m){
     {key:'requirements',label:'Gather Requirements',count:c.requirements,icon:'1',desc:'Business needs, actors, rules and acceptance criteria.'},
     {key:'screens',label:'Suggested Screens',count:c.screens,icon:'2',desc:'Oracle Forms mapped to the new suggested UI.'},
     {key:'backend',label:'Backend Logic',count:c.apis+c.logic,icon:'3',desc:'APIs, validations, workflows, permissions and automation.'},
-    {key:'erd',label:'ERD',count:c.entities,icon:'4',desc:'Tables, fields, keys and relationships.'}
+    {key:'erd',label:'ERD',count:c.entities,icon:'4',desc:'Tables, fields, keys and relationships.'},
+    {key:'testing',label:'Testing',count:c.tests,icon:'5',desc:'Test cases, execution steps, expected results and review comments.'}
   ];
   return stage.map(x=>({...x,status:x.count>0?'started':'not-started'}));
 }
 function moduleProgress(m){
   const c=counts(m.id);
-  const values=[c.requirements>0,c.screens>0,(c.apis+c.logic)>0,c.entities>0];
-  return Math.round(values.filter(Boolean).length/4*100);
+  const values=[c.requirements>0,c.screens>0,(c.apis+c.logic)>0,c.entities>0,c.tests>0];
+  return Math.round(values.filter(Boolean).length/5*100);
 }
 function renderModules(){
   const stages=project.modules.map(m=>({m,stages:moduleStageStatus(m),progress:moduleProgress(m)}));
@@ -477,9 +486,9 @@ function renderModules(){
     <div class="stage-grid">${stages.map(x=>`<button class="stage-card ${x.status}" data-module="${m.id}" data-target="module-workspace" data-stage="${x.key}"><span class="stage-number">${x.icon}</span><div><strong>${x.label}</strong><small>${x.desc}</small><em>${x.count} artifact${x.count===1?'':'s'} · ${x.status==='started'?'Started':'Not started'}</em></div><span class="stage-arrow">→</span></button>`).join('')}</div>
   </article>`).join('');
   $('#content').innerHTML=`
-    <div class="blueprint-hero"><div><span class="eyebrow">SYSTEM BLUEPRINT</span><h1>Modules → Requirements → Screens → Backend → ERD</h1><p>The module is the spine of the design. Every module moves through the same four stages, while the existing designers remain available as specialist tools.</p></div><div class="blueprint-hero-actions"><button class="btn primary" data-action="new-module">＋ New Module</button><button class="btn secondary" data-view="project-erd">Full ERD</button><button class="btn secondary" data-view="tasks">Tasks</button></div></div>
+    <div class="blueprint-hero"><div><span class="eyebrow">SYSTEM BLUEPRINT</span><h1>Modules → Requirements → Screens → Backend → ERD → Testing</h1><p>The module is the spine of the design. Every module moves through the same four stages, while the existing designers remain available as specialist tools.</p></div><div class="blueprint-hero-actions"><button class="btn primary" data-action="new-module">＋ New Module</button><button class="btn secondary" data-view="project-erd">Full ERD</button><button class="btn secondary" data-view="tasks">Tasks</button></div></div>
     <div class="module-rail-wrap"><div class="eyebrow">MODULES</div><div class="module-rail">${rail}</div></div>
-    <div class="blueprint-section-head"><div><span class="eyebrow">FOUR-STAGE DESIGN MODEL</span><h2>Design each module the same way</h2></div><span class="muted small-text">Click any stage to open its module workspace.</span></div>
+    <div class="blueprint-section-head"><div><span class="eyebrow">FIVE-STAGE DESIGN MODEL</span><h2>Design each module the same way</h2></div><span class="muted small-text">Click any stage to open its module workspace.</span></div>
     <div class="module-blueprint-list">${stageCards}</div>`;
 }
 
@@ -488,7 +497,7 @@ function renderModuleWorkspace(){
   if(!m){state.view='modules';renderModules();return;}
   const c=counts(m.id), progress=moduleProgress(m), tab=state.tab||'requirements';
   const req=project.requirements.filter(x=>x.moduleId===m.id), screens=project.screens.filter(x=>x.moduleId===m.id), apis=project.apis.filter(x=>x.moduleId===m.id), logic=project.logic.filter(x=>x.moduleId===m.id), ents=project.entities.filter(x=>x.moduleId===m.id), tasks=(project.timeline||[]).filter(x=>x.moduleId===m.id);
-  const tabs=[['requirements','1','Gather Requirements',c.requirements],['screens','2','Suggested Screens',c.screens],['backend','3','Backend Logic',c.apis+c.logic],['erd','4','ERD',c.entities]];
+  const tabs=[['requirements','1','Gather Requirements',c.requirements],['screens','2','Suggested Screens',c.screens],['backend','3','Backend Logic',c.apis+c.logic],['erd','4','ERD',c.entities],['testing','5','Testing',c.tests]];
   const tabButtons=tabs.map(t=>`<button class="workspace-tab ${tab===t[0]?'active':''}" data-tab="${t[0]}"><span>${t[1]}</span><div><b>${t[2]}</b><small>${t[3]} artifacts</small></div></button>`).join('');
   let body='';
   if(tab==='requirements') body=`<div class="workspace-stage-head"><div><span class="eyebrow">STAGE 1</span><h2>Gather Requirements</h2><p>Capture what the business needs before deciding how the new system should look or work.</p></div><button class="btn primary" data-action="new-requirement">＋ Requirement</button></div><div class="artifact-list">${req.map(r=>`<div class="artifact-row"><div class="artifact-id">${esc(r.id)}</div><div><strong>${esc(r.title)}</strong><small>${esc(r.actor||'No actor')} · ${esc(r.priority||'Medium')} · ${esc(r.status||'Draft')}</small></div><button class="btn tiny" data-action="edit-requirement" data-id="${r.id}">Open</button></div>`).join('')||`<div class="empty"><strong>No requirements yet</strong><p>Start by capturing the business requirement for ${esc(m.name)}.</p><button class="btn primary" data-action="new-requirement">＋ Add requirement</button></div>`}</div>`;
@@ -498,7 +507,11 @@ function renderModuleWorkspace(){
   }
   if(tab==='backend') body=`<div class="workspace-stage-head"><div><span class="eyebrow">STAGE 3</span><h2>Backend Logic</h2><p>Define the API contracts, permissions, validations, workflows and automations behind the screens.</p></div><div><button class="btn secondary" data-view="backend" data-module="${m.id}">Open Backend Designer</button><button class="btn primary" data-action="new-api">＋ API</button></div></div><div class="grid two"><div class="card"><div class="card-title"><h3>API Contracts</h3></div>${apis.map(a=>`<div class="artifact-row"><div class="artifact-id">${esc(a.method)}</div><div><strong>${esc(a.name)}</strong><small>${esc(a.path)} · ${esc(a.status||'Draft')}</small></div><button class="btn tiny" data-action="edit-api" data-id="${a.id}">Open</button></div>`).join('')||'<div class="empty">No APIs defined.</div>'}</div><div class="card"><div class="card-title"><h3>Workflows</h3><button class="btn tiny" data-action="new-logic">＋</button></div>${logic.map(l=>`<div class="artifact-row"><div class="artifact-id">WF</div><div><strong>${esc(l.name)}</strong><small>${esc(l.trigger)}</small></div><button class="btn tiny" data-action="edit-logic" data-id="${l.id}">Open</button></div>`).join('')||'<div class="empty">No backend workflows defined.</div>'}</div></div>`;
   if(tab==='erd') body=`<div class="workspace-stage-head"><div><span class="eyebrow">STAGE 4</span><h2>ERD</h2><p>Define the Oracle tables, fields and relationships required by this module.</p></div><div><button class="btn secondary" data-view="erd" data-module="${m.id}">Open Module ERD</button><button class="btn primary" data-action="new-entity">＋ Table</button></div></div><div class="erd-mini-summary"><div><b>${ents.length}</b><span>Tables</span></div><div><b>${ents.reduce((n,e)=>n+(e.fields||[]).length,0)}</b><span>Fields</span></div><div><b>${project.relations.filter(r=>ents.some(e=>e.id===r.from)&&ents.some(e=>e.id===r.to)).length}</b><span>Relationships</span></div></div><div class="artifact-list">${ents.map(e=>`<div class="artifact-row"><div class="artifact-id">◇</div><div><strong>${esc(e.name)}</strong><small>${(e.fields||[]).length} fields · ${esc(moduleById(e.moduleId)?.name||'')}</small></div><button class="btn tiny" data-action="edit-entity" data-id="${e.id}">Open</button></div>`).join('')||'<div class="empty">No tables defined for this module.</div>'}</div>`;
-  $('#content').innerHTML=`<div class="module-workspace-head"><button class="btn secondary" data-view="modules">← Blueprint</button><div class="workspace-module-title"><span class="module-icon">${esc(m.icon)}</span><div><span class="eyebrow">MODULE WORKSPACE</span><h1>${esc(m.name)}</h1><p>${esc(m.description)}</p></div></div><div class="workspace-progress"><b>${progress}%</b><span>4-stage completion</span><div class="progress"><span style="width:${progress}%"></span></div></div></div><div class="workspace-tabs">${tabButtons}</div><div class="workspace-stage-panel">${body}</div>`;
+  if(tab==='testing') {
+    const tests=(project.tests||[]).filter(t=>t.moduleId===m.id);
+    body=`<div class="workspace-stage-head"><div><span class="eyebrow">STAGE 5</span><h2>Testing</h2><p>Execute functional, integration, UI and acceptance tests for this module. Every test can contain detailed steps with individual status and comments.</p></div><div><button class="btn secondary" data-view="testing" data-module="${m.id}">Open Testing Center</button><button class="btn primary" data-action="new-test">＋ Test Case</button></div></div><div class="testing-mini-summary"><div><b>${tests.length}</b><span>Test cases</span></div><div><b>${tests.filter(t=>t.status==='Passed').length}</b><span>Passed</span></div><div><b>${tests.filter(t=>t.status==='Failed').length}</b><span>Failed</span></div><div><b>${tests.filter(t=>t.status==='Blocked').length}</b><span>Blocked</span></div></div><div class="artifact-list">${tests.map(t=>`<div class="artifact-row"><div class="artifact-id">🧪</div><div><strong>${esc(t.name)}</strong><small>${esc(t.type||'Functional')} · ${esc(t.status||'Not Run')} · ${(t.steps||[]).length} steps</small></div><button class="btn tiny" data-action="edit-test" data-id="${t.id}">Open</button></div>`).join('')||'<div class="empty">No test cases defined for this module yet.</div>'}</div>`;
+  }
+  $('#content').innerHTML=`<div class="module-workspace-head"><button class="btn secondary" data-view="modules">← Blueprint</button><div class="workspace-module-title"><span class="module-icon">${esc(m.icon)}</span><div><span class="eyebrow">MODULE WORKSPACE</span><h1>${esc(m.name)}</h1><p>${esc(m.description)}</p></div></div><div class="workspace-progress"><b>${progress}%</b><span>5-stage completion</span><div class="progress"><span style="width:${progress}%"></span></div></div></div><div class="workspace-tabs">${tabButtons}</div><div class="workspace-stage-panel">${body}</div>`;
   $$('[data-open-screen]').forEach(b=>b.onclick=()=>{state.moduleId=m.id;state.screenId=b.dataset.openScreen;state.view='screens';render();});
   $('#moduleOracleUpload')?.addEventListener('change',e=>handleReferenceFiles(e.target.files,m.id,null,'Oracle Form'));
 }
@@ -961,6 +974,7 @@ function renderERD(){
       <div class="erd-head-actions"><button class="btn secondary" data-view="project-erd">◈ Full Project ERD</button><button class="btn secondary" data-action="new-relation">＋ Relationship</button><button class="btn primary" data-action="new-entity">＋ Table</button></div></div>
     <div class="erd-command-bar"><select id="erdFilter"><option value="ALL">All modules</option>${project.modules.map(x=>`<option value="${x.id}" ${state.erdModule===x.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select>
       <button class="erd-connect-command ${relationMode?'active':''}" id="erdConnectCommand">${relationMode?'✕ Cancel Connection':'⌁ Connect Tables'}</button>
+      <button class="erd-view-command ${state.erdCompact?'active':''}" id="erdCompactCommand">▦ Compact</button><button class="erd-view-command" id="erdArrangeCommand">✦ Auto Arrange</button><button class="erd-view-command" id="erdZoomOut">−</button><span class="erd-zoom-label" id="erdZoomLabel">${state.erdZoom}%</span><button class="erd-view-command" id="erdZoomIn">+</button>
       <span class="erd-help">${relationMode?`Source: <b>${esc(project.entities.find(e=>e.id===relationMode)?.name||relationMode)}</b> — now click any target table`:'Tip: click Connect on a table, then click another table.'}</span>
       <span class="erd-counts">${entities.length} tables · ${relationRows.length} relationships</span></div>
     <div class="erd-shell enhanced ${state.erdCompact?'compact':''}" id="erdCanvas"><svg class="erd-svg" id="erdSvg"></svg>
@@ -1006,9 +1020,9 @@ function bindERDInteractions(full,entities){
   const canvas=$(full?'#projectErdCanvas':'#erdCanvas'); if(!canvas)return;
   canvas.onclick=e=>{
     const connectBtn=e.target.closest('[data-erd-connect]');
-    if(connectBtn){e.preventDefault();e.stopPropagation();state.erdConnectFrom=connectBtn.dataset.erdConnect;render();showToast('Source selected. Click the target table.');return;}
+    if(connectBtn){e.preventDefault();e.stopPropagation();state.erdConnectFrom=connectBtn.dataset.erdConnect;renderERD();showToast('Source selected. Click the target table.');return;}
     const table=e.target.closest('.erd-table');
-    if(table && state.erdConnectFrom){e.preventDefault();e.stopPropagation();if(createERDRelation(state.erdConnectFrom,table.dataset.entity))render();}
+    if(table && state.erdConnectFrom){e.preventDefault();e.stopPropagation();if(createERDRelation(state.erdConnectFrom,table.dataset.entity))renderERD();}
   };
   let drag=null;
   const scale=()=>{const r=canvas.getBoundingClientRect();return canvas.offsetWidth?Math.max(.1,r.width/canvas.offsetWidth):1};
@@ -1040,10 +1054,31 @@ function bindERDInteractions(full,entities){
 }
 
 function drawRelations(entities,full=false){
-  const svg=$(full?'#projectErdSvg':'#erdSvg');if(!svg)return;const canvas=$(full?'#projectErdCanvas':'#erdCanvas');svg.innerHTML='';
-  const defs=document.createElementNS('http://www.w3.org/2000/svg','defs');defs.innerHTML=`<marker id="arrow${full?'Full':'Module'}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#4f6f9f"/></marker>`;svg.appendChild(defs);
+  const svg=$(full?'#projectErdSvg':'#erdSvg');
+  const canvas=$(full?'#projectErdCanvas':'#erdCanvas');
+  if(!svg||!canvas)return;
+  svg.innerHTML='';
+  const width=Math.max(canvas.clientWidth,canvas.scrollWidth,1100),height=Math.max(canvas.clientHeight,canvas.scrollHeight,700);
+  svg.setAttribute('width',width);svg.setAttribute('height',height);svg.style.width=width+'px';svg.style.height=height+'px';
+  const defs=document.createElementNS('http://www.w3.org/2000/svg','defs');
+  defs.innerHTML=`<marker id="arrow${full?'Full':'Module'}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#4f6f9f"/></marker>`;
+  svg.appendChild(defs);
   const visible=new Set(entities.map(e=>e.id));
-  project.relations.forEach(r=>{if(!visible.has(r.from)||!visible.has(r.to))return;const a=document.querySelector(`[data-entity="${r.from}"]`),b=document.querySelector(`[data-entity="${r.to}"]`);if(!a||!b)return;const ar=a.getBoundingClientRect(),br=b.getBoundingClientRect(),cr=canvas.getBoundingClientRect();const x1=ar.left-cr.left+ar.width/2,y1=ar.top-cr.top+ar.height/2,x2=br.left-cr.left+br.width/2,y2=br.top-cr.top+br.height/2;const line=document.createElementNS('http://www.w3.org/2000/svg','line');line.setAttribute('x1',x1);line.setAttribute('y1',y1);line.setAttribute('x2',x2);line.setAttribute('y2',y2);line.setAttribute('stroke','#4f6f9f');line.setAttribute('stroke-width','2.5');line.setAttribute('marker-end',`url(#arrow${full?'Full':'Module'})`);line.setAttribute('opacity','.9');line.style.pointerEvents='none';svg.appendChild(line);const text=document.createElementNS('http://www.w3.org/2000/svg','text');text.setAttribute('x',(x1+x2)/2);text.setAttribute('y',(y1+y2)/2-7);text.setAttribute('class','erd-relation-label');text.textContent=`${r.fromField||''} → ${r.toField||''} · ${r.cardinality||'1:N'}`;svg.appendChild(text);});
+  project.relations.forEach(r=>{
+    if(!visible.has(r.from)||!visible.has(r.to))return;
+    const a=document.querySelector(`[data-entity="${r.from}"]`),b=document.querySelector(`[data-entity="${r.to}"]`);
+    if(!a||!b)return;
+    const x1=(parseFloat(a.style.left)||a.offsetLeft||0)+a.offsetWidth/2;
+    const y1=(parseFloat(a.style.top)||a.offsetTop||0)+a.offsetHeight/2;
+    const x2=(parseFloat(b.style.left)||b.offsetLeft||0)+b.offsetWidth/2;
+    const y2=(parseFloat(b.style.top)||b.offsetTop||0)+b.offsetHeight/2;
+    const line=document.createElementNS('http://www.w3.org/2000/svg','line');
+    line.setAttribute('x1',x1);line.setAttribute('y1',y1);line.setAttribute('x2',x2);line.setAttribute('y2',y2);
+    line.setAttribute('stroke','#4f6f9f');line.setAttribute('stroke-width','2.5');line.setAttribute('marker-end',`url(#arrow${full?'Full':'Module'})`);line.setAttribute('opacity','.9');line.style.pointerEvents='none';svg.appendChild(line);
+    const text=document.createElementNS('http://www.w3.org/2000/svg','text');
+    text.setAttribute('x',(x1+x2)/2);text.setAttribute('y',(y1+y2)/2-7);text.setAttribute('class','erd-relation-label');
+    text.textContent=`${r.fromField||''} → ${r.toField||''} · ${r.cardinality||'1:N'}`;svg.appendChild(text);
+  });
 }
 function renderProjectERD(){
   const entities=project.entities, relations=project.relations, relationMode=state.erdConnectFrom;
@@ -1089,6 +1124,27 @@ function renderTraceability(){
 }
 function yesno(v){return `<span class="coverage-cell ${v?"yes":"no"}">${v?"✓":"—"}</span>`}
 
+function renderTesting(){
+  const all=(project.tests||[]).filter(t=>!state.moduleId || t.moduleId===state.moduleId);
+  const total=all.length, passed=all.filter(t=>t.status==='Passed').length, failed=all.filter(t=>t.status==='Failed').length, blocked=all.filter(t=>t.status==='Blocked').length, notRun=all.filter(t=>!t.status||t.status==='Not Run').length;
+  const rows=all.map(t=>`<div class="testing-case-card" data-module="${esc(t.moduleId||'')}" data-status="${esc(t.status||'Not Run')}" data-type="${esc(t.type||'Functional')}">
+    <div class="testing-case-head"><div><span class="eyebrow">${esc(t.type||'Functional')} · ${esc(t.priority||'Medium')}</span><h3>${esc(t.name)}</h3><small>${esc(t.id)} · ${esc(moduleById(t.moduleId)?.name||'Project')} · ${(t.steps||[]).length} steps</small></div><div class="testing-case-actions"><span class="test-status">${esc(t.status||'Not Run')}</span><button class="btn tiny" data-action="edit-test" data-id="${t.id}">Open</button><button class="icon-btn danger" data-action="delete-test" data-id="${t.id}">×</button></div></div>
+    <div class="testing-case-meta"><div><b>Requirement</b><span>${esc(t.requirementId||'—')}</span></div><div><b>Screen</b><span>${esc(project.screens.find(s=>s.id===t.screenId)?.name||t.screenId||'—')}</span></div><div><b>Expected result</b><span>${esc(t.expectedResult||'—')}</span></div></div>
+    <div class="testing-steps-mini">${(t.steps||[]).map((st,i)=>`<div class="testing-step-mini"><span>${i+1}</span><div><strong>${esc(st.action||'Step')}</strong><small>Expected: ${esc(st.expected||'—')}</small></div><em>${esc(st.status||'Not Run')}</em>${st.comments?`<p>💬 ${esc(st.comments)}</p>`:''}</div>`).join('')||'<div class="muted small-text">No execution steps defined.</div>'}</div>${t.comments?`<div class="testing-case-comment">💬 ${esc(t.comments)}</div>`:''}</div>`).join('');
+  $('#content').innerHTML=`<div class="testing-hero"><div><span class="eyebrow">QUALITY & UAT</span><h1>Testing Center</h1><p>Define, execute and review test cases across requirements, screens, backend logic and ERD. Every test step has its own status and comment so defects and decisions stay attached to the evidence.</p></div><div><button class="btn primary" data-action="new-test">＋ New Test Case</button></div></div><div class="testing-filter-bar"><select id="testingModuleFilter"><option value="ALL">All modules</option>${project.modules.map(m=>`<option value="${m.id}" ${state.moduleId===m.id?'selected':''}>${esc(m.name)}</option>`).join('')}</select><select id="testingStatusFilter"><option value="ALL">All statuses</option>${['Not Run','In Progress','Passed','Failed','Blocked','Skipped'].map(x=>`<option>${x}</option>`).join('')}</select><select id="testingTypeFilter"><option value="ALL">All types</option>${['Functional','UI','Integration','API','Security','UAT','Regression','Performance'].map(x=>`<option>${x}</option>`).join('')}</select></div><div class="grid cards testing-summary">${metric('Test Cases',total,'🧪')}${metric('Passed',passed,'✓')}${metric('Failed',failed,'⚠')}${metric('Blocked',blocked,'⛔')}${metric('Not Run',notRun,'○')}</div><div class="testing-case-list">${rows||'<div class="empty"><strong>No test cases yet</strong><p>Create a test case and add detailed execution steps with comments.</p><button class="btn primary" data-action="new-test">＋ Create first test</button></div>'}</div>`;
+  const apply=()=>{const mod=$('#testingModuleFilter')?.value||'ALL',st=$('#testingStatusFilter')?.value||'ALL',ty=$('#testingTypeFilter')?.value||'ALL'; $$('.testing-case-card').forEach(card=>{card.style.display=((mod==='ALL'||card.dataset.module===mod)&&(st==='ALL'||card.dataset.status===st)&&(ty==='ALL'||card.dataset.type===ty))?'':'none';});};
+  ['testingModuleFilter','testingStatusFilter','testingTypeFilter'].forEach(id=>$('#'+id)?.addEventListener('change',apply)); apply();
+}
+function testingForm(item){
+  item ||= {id:uid('TEST'),moduleId:state.moduleId||project.modules[0]?.id||'',requirementId:'',screenId:'',name:'',type:'Functional',priority:'Medium',status:'Not Run',preconditions:'',expectedResult:'',actualResult:'',comments:'',steps:[{id:uid('STEP'),action:'Open the target screen',expected:'The screen opens without errors',status:'Not Run',comments:''}]};
+  const stepRows=(item.steps||[]).map((st,i)=>`<div class="test-step-editor" data-step-row><div class="test-step-number">${i+1}</div><div class="test-step-fields"><input name="step_action" value="${esc(st.action||'')}" placeholder="Action / instruction"><input name="step_expected" value="${esc(st.expected||'')}" placeholder="Expected result"><select name="step_status">${['Not Run','In Progress','Passed','Failed','Blocked','Skipped'].map(x=>`<option ${x===(st.status||'Not Run')?'selected':''}>${x}</option>`).join('')}</select><textarea name="step_comments" placeholder="Comment for this step, defect, evidence or decision...">${esc(st.comments||'')}</textarea></div><button type="button" class="icon-btn danger" data-action="remove-test-step" data-id="${i}">×</button></div>`).join('');
+  const reqOpts=project.requirements.map(r=>`<option value="${r.id}" ${r.id===(item.requirementId||'')?'selected':''}>${esc(r.id)} — ${esc(r.title)}</option>`).join('');
+  const screenOpts=project.screens.filter(s=>!item.moduleId||s.moduleId===item.moduleId).map(s=>`<option value="${s.id}" ${s.id===(item.screenId||'')?'selected':''}>${esc(s.name)}</option>`).join('');
+  return `<div class="form-grid"><div class="field"><label>Test ID</label><input name="id" value="${esc(item.id)}" readonly></div><div class="field"><label>Module</label>${moduleSelector(item.moduleId)}</div><div class="field full"><label>Test name</label><input name="name" value="${esc(item.name)}" placeholder="Example: Create employee with valid data"></div><div class="field"><label>Type</label><select name="type">${['Functional','UI','Integration','API','Security','UAT','Regression','Performance'].map(x=>`<option ${x===item.type?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Priority</label><select name="priority">${['Low','Medium','High','Critical'].map(x=>`<option ${x===item.priority?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Status</label><select name="status">${['Not Run','In Progress','Passed','Failed','Blocked','Skipped'].map(x=>`<option ${x===item.status?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Requirement</label><select name="requirementId"><option value="">— None —</option>${reqOpts}</select></div><div class="field"><label>Screen</label><select name="screenId"><option value="">— None —</option>${screenOpts}</select></div><div class="field full"><label>Preconditions</label><textarea name="preconditions">${esc(item.preconditions||'')}</textarea></div><div class="field full"><label>Expected overall result</label><textarea name="expectedResult">${esc(item.expectedResult||'')}</textarea></div><div class="field full"><label>Actual result / execution notes</label><textarea name="actualResult">${esc(item.actualResult||'')}</textarea></div><div class="field full"><div class="card-title"><h3>Execution Steps</h3><button type="button" class="btn secondary" data-action="add-test-step">＋ Step</button></div><div id="testStepsEditor">${stepRows||'<div class="empty">No steps. Add one.</div>'}</div></div><div class="field full"><label>💬 Test Case Comments</label><textarea name="comments">${esc(item.comments||'')}</textarea></div></div>`;
+}
+function addTestingStep(){const box=$('#testStepsEditor');if(!box)return;const i=box.querySelectorAll('[data-step-row]').length;box.insertAdjacentHTML('beforeend',`<div class="test-step-editor" data-step-row><div class="test-step-number">${i+1}</div><div class="test-step-fields"><input name="step_action" placeholder="Action / instruction"><input name="step_expected" placeholder="Expected result"><select name="step_status">${['Not Run','In Progress','Passed','Failed','Blocked','Skipped'].map(x=>`<option>${x}</option>`).join('')}</select><textarea name="step_comments" placeholder="Comment for this step, defect, evidence or decision..."></textarea></div><button type="button" class="icon-btn danger" data-action="remove-test-step" data-id="${i}">×</button></div>`); $$('#modalRoot [data-action="remove-test-step"]').forEach(el=>el.onclick=()=>removeTestingStep(el.dataset.index));}
+function removeTestingStep(index){const rows=$$('#testStepsEditor [data-step-row]');if(rows[index])rows[index].remove();rows.forEach((r,i)=>{r.querySelector('.test-step-number').textContent=i+1;r.querySelector('[data-action="remove-test-step"]')?.setAttribute('data-id',i);});}
+function submitTestingModal(){const v=formValues();const steps=$$('#testStepsEditor [data-step-row]').map(row=>({id:uid('STEP'),action:row.querySelector('[name="step_action"]')?.value.trim()||'',expected:row.querySelector('[name="step_expected"]')?.value.trim()||'',status:row.querySelector('[name="step_status"]')?.value||'Not Run',comments:row.querySelector('[name="step_comments"]')?.value||''})).filter(x=>x.action||x.expected||x.comments);if(!v.name.trim())return alert('Test case name is required');const obj={id:v.id,moduleId:v.moduleId,requirementId:v.requirementId,screenId:v.screenId,name:v.name.trim(),type:v.type,priority:v.priority,status:v.status,preconditions:v.preconditions,expectedResult:v.expectedResult,actualResult:v.actualResult,comments:v.comments,steps};const old=project.tests.find(x=>x.id===state.editing.id);if(old)Object.assign(old,obj);else project.tests.push(obj);saveProject(false);closeModal();render();showToast(old?'Test case updated':'Test case created');}
 function renderValidation(){
   const issues=[];
   project.requirements.forEach(r=>{if(!r.actor)issues.push(["Requirement",r.id,"Missing actor"]);if(!r.acceptance)issues.push(["Requirement",r.id,"Missing acceptance criteria"])});
@@ -1254,6 +1310,11 @@ function handleAction(action,id){
     case "back-screens":state.tab="list";render();break;
     case "save-component": saveComponent(id);break;
     case "delete-component": {const s=project.screens.find(x=>x.id===state.editing.id);s.components=s.components.filter(c=>c.id!==id);state.selectedComponent=null;saveActiveScreen(false);renderScreens();showToast("Component removed");break}
+    case "new-test": state.editing={type:"test"}; modal("New Test Case",testingForm(),`<button class="btn secondary" data-action="close-modal">Cancel</button><button class="btn primary" data-action="submit-testing-modal">Save Test Case</button>`,true); break;
+    case "edit-test": state.editing={type:"test",id}; modal("Edit Test Case",testingForm(project.tests.find(x=>x.id===id)),`<button class="btn secondary" data-action="close-modal">Cancel</button><button class="btn primary" data-action="submit-testing-modal">Save Test Case</button>`,true); break;
+    case "delete-test": if(confirm("Delete this test case?")){project.tests=project.tests.filter(x=>x.id!==id);saveProject(false);render();showToast("Test case deleted")} break;
+    case "add-test-step": addTestingStep(); break;
+    case "remove-test-step": removeTestingStep(id); break;
     case "new-entity": state.editing={type:"entity"};modal("New Database Entity",entityForm(),`<button class="btn secondary" data-action="close-modal">Cancel</button><button class="btn primary" data-action="submit-modal">Save</button>`,true);break;
     case "edit-entity": state.editing={type:"entity",id};modal("Edit Database Entity",entityForm(project.entities.find(x=>x.id===id)),`<button class="btn secondary" data-action="close-modal">Cancel</button><button class="btn primary" data-action="submit-modal">Save</button>`,true);break;
     case "new-relation": state.editing={type:"relation"};modal("New Relationship",relationForm());break;
@@ -1298,6 +1359,7 @@ function saveComponent(id){
 
 async function submitModal(){
   const v=formValues(), t=state.editing?.type;
+  if(t==="test")return submitTestingModal();
   if(t==="project-comment"){
     const text=String(v.comment||"").trim(); if(!text)return alert("Comment cannot be empty");
     const u=currentUser()||{};
@@ -1438,13 +1500,14 @@ function setView(view,moduleId=null){
   state.view=view; state.moduleId=moduleId;
   if(view!=='screens'){state.screenId=null;state.selectedComponentId=null;}
   if(view!=='timeline')state.timelineFilter=null;
+  if(view!=='module-workspace')state.tab='requirements';
   render();
 }
 function nav(){
   const u=currentUser(); const roleKey={Administrator:'ADMIN',Architect:'ARCH',Designer:'DESIGNER',Viewer:'VIEWER'}; const role=roleKey[u?.role]||'VIEWER';
   const can=(id)=>{
     if(id==='access'||id==='settings') return role==='ADMIN';
-    if(['backend','erd','project-erd','screens','requirements','modules','timeline','architecture','technical','traceability','validation','documentation','references','dashboard'].includes(id)) return true;
+    if(['backend','erd','project-erd','screens','requirements','modules','timeline','architecture','technical','traceability','validation','testing','documentation','references','dashboard'].includes(id)) return true;
     return true;
   };
   const moduleId=state.moduleId;
@@ -1510,9 +1573,9 @@ function render(){
   securityDefaults();
   if(!currentUser()){renderLogin();return;}
   normalizeDesignData(); normalizeComments(); nav();
-  const titles={dashboard:"Design Studio",timeline:"Timeline / Project Plan",architecture:"Architecture Map",technical:"Technical Architecture",modules:"System Blueprint",requirements:"Business Requirements","module-workspace":"Module Workspace",screens:"Screen Designer",erd:"Module ERD","project-erd":"Full Project ERD",backend:"Backend Logic",tasks:"Tasks & Traceability",traceability:"Traceability",validation:"Validation",documentation:"Documentation",settings:"Settings",access:"Users & Access",audit:"Audit Log",references:"Reference Images"};
+  const titles={dashboard:"Design Studio",timeline:"Timeline / Project Plan",architecture:"Architecture Map",technical:"Technical Architecture",modules:"System Blueprint",requirements:"Business Requirements","module-workspace":"Module Workspace",screens:"Screen Designer",erd:"Module ERD","project-erd":"Full Project ERD",backend:"Backend Logic",tasks:"Tasks & Traceability",traceability:"Traceability",validation:"Validation",testing:"Testing",documentation:"Documentation",settings:"Settings",access:"Users & Access",audit:"Audit Log",references:"Reference Images"};
   $("#pageTitle").textContent=titles[state.view]||"Design Studio"; $("#breadcrumb").textContent=state.moduleId?`${titles[state.view]} / ${moduleById(state.moduleId)?.name||""}`:titles[state.view];
-  const handlers={dashboard:renderDashboard,timeline:renderTimeline,architecture:renderArchitecture,technical:renderTechnicalArchitecture,modules:renderModules,"module-workspace":renderModuleWorkspace,requirements:renderRequirements,screens:renderScreens,erd:renderERD,"project-erd":renderProjectERD,backend:renderBackend,tasks:renderTasks,traceability:renderTraceability,validation:renderValidation,documentation:renderDocumentation,settings:renderSettings,access:renderAccess,audit:renderAudit,references:renderReferences};
+  const handlers={dashboard:renderDashboard,timeline:renderTimeline,architecture:renderArchitecture,technical:renderTechnicalArchitecture,modules:renderModules,"module-workspace":renderModuleWorkspace,requirements:renderRequirements,screens:renderScreens,erd:renderERD,"project-erd":renderProjectERD,backend:renderBackend,tasks:renderTasks,traceability:renderTraceability,validation:renderValidation,testing:renderTesting,documentation:renderDocumentation,settings:renderSettings,access:renderAccess,audit:renderAudit,references:renderReferences};
   (handlers[state.view]||renderDashboard)(); addQuickNavCarousel(); bindActions();
   const top=$('.top-actions'); if(top){top.querySelector('.status-pill')?.insertAdjacentHTML('afterend',`<span class="user-pill">👤 ${esc(currentUser().displayName)} · ${esc(currentUser().role)}</span>`);}
 }
