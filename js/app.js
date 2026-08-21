@@ -1129,7 +1129,7 @@ function renderSettings(){
   <div class="settings-list">
     <div class="setting"><div><strong>Autosave</strong><div class="muted small-text">Persist changes in browser localStorage.</div></div><input id="autosave" type="checkbox" ${project.settings.autosave!==false?"checked":""}></div>
     <div class="setting"><div><strong>Grid size</strong><div class="muted small-text">ERD canvas grid.</div></div><select id="gridSize"><option ${project.settings.gridSize==16?"selected":""}>16</option><option ${project.settings.gridSize==24?"selected":""}>24</option><option ${project.settings.gridSize==32?"selected":""}>32</option></select></div>
-    <div class="setting"><div><strong>Cloud database</strong><div class="muted small-text">All project parts are stored in Supabase tables: modules, requirements, screens, components, ERD entities/fields, relationships, APIs, workflows, timeline/tasks, references, users, roles, permissions and module access.</div><div class="muted small-text">${esc(typeof supabaseStatus==='function'?supabaseStatus():'Supabase is not configured')}</div></div><div class="module-meta"><button class="btn secondary" data-action="test-cloud">Test connection</button><button class="btn primary" data-action="save-cloud">Save to Supabase now</button></div></div>
+    <div class="setting"><div><strong>Cloud database</strong><div class="muted small-text">All project parts are stored in the shared CockroachDB project. modules, requirements, screens, components, ERD entities/fields, relationships, APIs, workflows, timeline/tasks, references, users, roles, permissions and module access.</div><div class="muted small-text">${esc(typeof supabaseStatus==='function'?supabaseStatus():'CockroachDB API is not configured')}</div></div><div class="module-meta"><button class="btn secondary" data-action="test-cloud">Test connection</button><button class="btn primary" data-action="save-cloud">Save to CockroachDB now</button></div></div>
     <div class="setting"><div><strong>Project JSON file</strong><div class="muted small-text">Portable backup of the complete project.</div><div class="muted small-text" id="projectFileStatus">${esc(typeof projectFileStatus==='function'?projectFileStatus():'Browser storage (local)')}</div></div><div class="module-meta"><button class="btn secondary" data-action="connect-project-file">Connect JSON File</button><button class="btn secondary" data-action="export-project">Download JSON</button><button class="btn secondary" data-action="export-text">Download TXT</button><label class="btn secondary file-btn">Load JSON<input id="settingsImportFile" type="file" accept=".json" hidden></label></div></div>
     <div class="setting"><div><strong>Project reset</strong><div class="muted small-text">Restore the demo project and lose local changes.</div></div><button class="btn secondary" data-action="reset-project">Reset demo</button></div>
   </div></div>`;
@@ -1217,10 +1217,13 @@ function handleAction(action,id){
     case "add-project-comment": addProjectComment();break;
     case "logout": logout(); break;
     case "refresh-audit": renderAudit(); break;
-    case "new-role": state.editing={type:"role"};modal("New Role",roleForm());break;
     case "new-user": state.editing={type:"user"};modal("New User",userForm());break;
     case "edit-user": state.editing={type:"user",id};modal("Edit User",userForm((project.security.users||[]).find(x=>x.id===id)));break;
-    case "delete-user": { const target=(project.security.users||[]).find(x=>x.id===id); if(!target||String(target.username).toLowerCase()==="admin") {showToast("The admin account cannot be deleted.");break;} if(confirm("Delete this user?")){project.security.users=project.security.users.filter(x=>x.id!==id);saveProject(false);renderAccess();showToast("User deleted");} } break;
+    case "delete-user":
+      if(id==="USR-001"){showToast("The built-in admin cannot be deleted.");break;}
+      if(confirm("Delete this user?")){project.security.users=(project.security.users||[]).filter(x=>x.id!==id);saveProject(false);renderAccess();showToast("User deleted");}
+      break;
+    case "new-role": state.editing={type:"role"};modal("New Role",roleForm());break;
     case "new-reference": state.editing={type:"reference"};modal("Add Reference Image",referenceForm());break;
     case "edit-reference": state.editing={type:"reference",id};modal("Edit Reference Image",referenceForm((project.references||[]).find(x=>x.id===id)));break;
     case "delete-reference": if(confirm("Delete this reference image?")){project.references=(project.references||[]).filter(x=>x.id!==id);saveProject(false);render();showToast("Reference deleted");}break;
@@ -1337,18 +1340,19 @@ async function submitModal(){
   } else if(t==="api"){
     const obj={...v};if(!obj.id||!obj.name||!obj.path)return alert("API ID, name and path are required");
     const old=project.apis.find(x=>x.id===state.editing.id);if(old)Object.assign(old,obj);else project.apis.push(obj);
-  } else if(t==="role"){
-    if(!v.name)return alert("Role name is required"); const old=project.security.roles.find(x=>x.id===state.editing.id); const obj={id:v.id,name:v.name,description:v.description||""}; if(old)Object.assign(old,obj);else project.security.roles.push(obj);
   } else if(t==="user"){
     const username=String(v.username||"").trim().toLowerCase();
+    const displayName=String(v.displayName||"").trim()||username;
     if(!username)return alert("Username is required");
-    if(username==="admin")return alert("The admin account is fixed as admin / 123.");
-    const list=project.security.users||(project.security.users=[]);
-    if(list.some(x=>String(x.username).toLowerCase()===username && x.id!==state.editing.id))return alert("That username already exists.");
-    const old=list.find(x=>x.id===state.editing.id);
-    const obj={id:v.id,username,displayName:v.displayName||username,role:v.role||"Viewer",active:String(v.active)!=="false",password:String(v.password||old?.password||"") ,comments:v.comments||""};
-    if(!old && !obj.password)return alert("Password is required for a new user.");
-    if(old)Object.assign(old,obj);else list.push(obj);
+    if(state.editing.id==="USR-001" && username!=="admin")return alert("The built-in admin username cannot be changed.");
+    const duplicate=(project.security.users||[]).some(u=>u.id!==state.editing.id && String(u.username||"").trim().toLowerCase()===username);
+    if(duplicate)return alert("Username already exists.");
+    const old=(project.security.users||[]).find(x=>x.id===state.editing.id);
+    if(!old && !String(v.password||""))return alert("Password is required for a new user.");
+    const obj={id:v.id||uid("USR"),username,displayName,role:v.role||"Viewer",active:String(v.active)!=="false",password:old && !v.password ? old.password : String(v.password||""),comments:v.comments||""};
+    if(old)Object.assign(old,obj); else (project.security.users ||= []).push(obj);
+  } else if(t==="role"){
+    if(!v.name)return alert("Role name is required"); const old=project.security.roles.find(x=>x.id===state.editing.id); const obj={id:v.id,name:v.name,description:v.description||""}; if(old)Object.assign(old,obj);else project.security.roles.push(obj);
   } else if(t==="timeline"){
     if(!v.id||!v.name||!v.start||!v.end)return alert("Timeline item, start and end are required");
     if(v.end<v.start)return alert("End date must be on or after start date");
@@ -1377,11 +1381,15 @@ function exportTraceability(){
 const AUTH_KEY = "enterpriseDesignStudioAuth";
 function securityDefaults(){
   project.security ||= {};
-  project.security.users ||= [];
-  if(!project.security.users.some(u=>String(u.username||"").toLowerCase()==="admin")){
-    project.security.users.unshift({id:"USR-001",username:"admin",displayName:"System Administrator",role:"Administrator",active:true,password:"123",comments:"Built-in administrator account."});
+  // Authentication is intentionally limited to one hardcoded application user.
+  // CockroachDB API verifies the application password; the application exposes username only.
+  project.security.users ||= [
+    {id:"USR-001",username:"admin",displayName:"System Administrator",role:"Administrator",active:true,password:"123",comments:"Default administrator account. Change this password after first login."}
+  ];
+  // Always keep the built-in admin available, but do not overwrite users created by the administrator.
+  if(!project.security.users.some(u=>String(u.username||"").trim().toLowerCase()==="admin")){
+    project.security.users.unshift({id:"USR-001",username:"admin",displayName:"System Administrator",role:"Administrator",active:true,password:"123",comments:"Default administrator account."});
   }
-  project.security.users.forEach(u=>{ if(u.username==="admin") {u.role="Administrator";u.active=true;u.password="123";} });
   project.security.roles ||= [
     {id:"ADMIN",name:"Administrator",description:"Full access to all design and security features."},
     {id:"ARCH",name:"Architect",description:"Design, edit and manage technical artifacts."},
@@ -1408,18 +1416,9 @@ function securityDefaults(){
 }
 function currentUser(){
   if(typeof localAuthUser!=="undefined" && localAuthUser) return localAuthUser;
-  try{ const raw=localStorage.getItem("ibs_local_admin_session"); if(raw) return raw==="1"?{id:"LOCAL-ADMIN",username:"admin",displayName:"System Administrator",role:"Administrator",active:true}:JSON.parse(raw); }catch(_e){}
-  if(typeof supabaseAuthUser!=="undefined" && supabaseAuthUser){
-    const md=supabaseAuthUser.user_metadata||{};
-    const username=String(supabaseAuthUser.__ibsUsername||md.username||"").trim().toLowerCase();
-    if(username!=="admin") return null;
-    return {
-      id:supabaseAuthUser.id,
-      username:"admin",
-      displayName:"System Administrator",
-      role:"Administrator",
-      active:true,
-    };
+  if(typeof useLocalAdminFallback==="function"){
+    const u=useLocalAdminFallback();
+    if(u)return u;
   }
   return null;
 }
@@ -1486,10 +1485,11 @@ function renderAccess(){
   const u=currentUser();
   const roleKey={Administrator:"ADMIN",Architect:"ARCH",Designer:"DESIGNER",Viewer:"VIEWER"};
   const role=roleKey[u?.role]||"VIEWER";
-  const users=project.security.users||[];
-  const rows=users.map(x=>`<tr><td><div class="user-cell"><div class="avatar">${esc((x.displayName||x.username||"U").slice(0,1).toUpperCase())}</div><div><b>${esc(x.displayName||x.username)}</b><small>@${esc(x.username)}</small></div></div></td><td><span class="role-badge">${esc(x.role||"Viewer")}</span></td><td><span class="status-chip ${x.active!==false?'ok':'warn'}">${x.active!==false?'Active':'Disabled'}</span></td><td>${esc(x.comments||'')}</td><td>${String(x.username).toLowerCase()==='admin'?'<span class="muted small-text">Fixed</span>':`<button class="icon-btn" data-action="edit-user" data-id="${esc(x.id)}">✎</button><button class="icon-btn danger" data-action="delete-user" data-id="${esc(x.id)}">×</button>`}</td></tr>`).join('');
-  const moduleRows=project.modules.map(m=>`<tr><td><b>${esc(m.name)}</b><small>${esc(m.id)}</small></td>${["ADMIN","ARCH","DESIGNER","VIEWER"].map(r=>`<td><button class="permission-toggle ${project.security.moduleAccess[m.id][r]?'on':''}" data-toggle-module="${m.id}" data-role="${r}" ${role!=="ADMIN"?'disabled':''}>${project.security.moduleAccess[m.id][r]?'✓':'—'}</button></td>`).join('')}</tr>`).join('');
-  $("#content").innerHTML=`<div class="access-header card"><div><span class="eyebrow">SECURITY CENTER</span><h2>Users & access</h2><p class="muted">Simple application login. The built-in admin account is <b>admin / 123</b>. Create additional users here when needed.</p></div></div><div class="access-tabs"><button class="access-tab active" data-access-tab="users">Users</button><button class="access-tab" data-access-tab="roles">Roles</button><button class="access-tab" data-access-tab="modules">Modules</button><button class="access-tab" data-access-tab="navigation">Navigation</button></div><div id="accessPanel"><div class="card"><div class="card-title"><div><h2>Users</h2><span class="muted small-text">User accounts are application accounts; Supabase Auth is not involved.</span></div><button class="btn primary" data-action="new-user">＋ New User</button></div><div class="table-wrap"><table class="data-table"><thead><tr><th>User</th><th>Role</th><th>Status</th><th>Notes</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div></div>`;
+  const rows=(project.security.users||[]).map(user=>{
+    const fixed=user.id==="USR-001";
+    return `<tr><td><div class="user-cell"><div class="avatar">${esc((user.displayName||user.username||"?").slice(0,1).toUpperCase())}</div><div><b>${esc(user.displayName||user.username)}</b><small>@${esc(user.username)}</small></div></div></td><td><span class="role-badge">${esc(user.role||"Viewer")}</span></td><td><span class="status-chip ${user.active===false?'warn':'ok'}">${user.active===false?'Disabled':'Active'}</span></td><td>${fixed?'Built-in administrator account.':'Application user; password is managed inside this application.'}</td><td>${fixed?'<span class="muted small-text">Fixed</span>':`<button class="btn secondary btn-sm" data-action="edit-user" data-id="${esc(user.id)}">Edit</button> <button class="btn danger btn-sm" data-action="delete-user" data-id="${esc(user.id)}">Delete</button>`}</td></tr>`;
+  }).join('');
+  $("#content").innerHTML=`<div class="access-header card"><div><span class="eyebrow">SECURITY CENTER</span><h2>Users & access</h2><p class="muted">Simple application login. Start with <b>admin / 123</b>, then create additional users here. No email account is required.</p></div></div><div class="access-tabs"><button class="access-tab active" data-access-tab="users">Users</button><button class="access-tab" data-access-tab="roles">Roles</button><button class="access-tab" data-access-tab="modules">Modules</button><button class="access-tab" data-access-tab="navigation">Navigation</button></div><div id="accessPanel"><div class="card"><div class="card-title"><div><h2>Application users</h2><span class="muted small-text">Usernames and passwords are managed directly in the project.</span></div><button class="btn primary" data-action="new-user" ${role!=="ADMIN"?'disabled':''}>＋ New User</button></div><div class="table-wrap"><table class="data-table"><thead><tr><th>User</th><th>Role</th><th>Status</th><th>Notes</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table></div></div></div>`;
   $$("[data-access-tab]").forEach(b=>b.onclick=()=>switchAccessTab(b.dataset.accessTab));
   bindActions();
 }
@@ -1524,11 +1524,13 @@ document.addEventListener("DOMContentLoaded",async()=>{
     securityDefaults();
     if(typeof initializeSupabase==="function" && supabaseConfigured()){
       await initializeSupabase();
-      const loaded=await loadSupabaseProject();
-      if(!loaded) await saveProjectToSupabase();
+      if(supabaseSession?.access_token){
+        const loaded=await loadSupabaseProject();
+        if(!loaded && supabaseAuthUser) await saveProjectToSupabase();
+      }
     }
     installPersistence(); render();
-  } catch(err) { console.error(err); const root=document.getElementById('content'); if(root) root.innerHTML='<div class="card"><h2>Design Studio could not start</h2><p>Please reload the page. If this is hosted on GitHub Pages, make sure the repository Pages source is set to the root of the branch.</p><pre style="white-space:pre-wrap;color:#b42318">'+String(err?.stack||err)+'</pre></div>'; }
+  } catch(err) { console.error(err); const root=document.getElementById('content'); if(root) root.innerHTML='<div class="card"><h2>Design Studio could not start</h2><p>Please reload the page. If this is hosted on GitHub Pages, make sure the repository Pages source is set to the root of the branch.</p><pre style="white-space:pre-wrap;color:#b42318">'+(err?.stack || err?.message || (typeof err==='string'?err:JSON.stringify(err,null,2)))+'</pre></div>'; }
   const importFile=$("#importFile"); if(importFile) importFile.onchange=e=>{if(e.target.files[0])importProject(e.target.files[0])};
   const menu=$("#mobileMenuBtn"), backdrop=$("#mobileNavBackdrop");
   const closeMobileNav=()=>document.body.classList.remove("mobile-nav-open");
