@@ -69,7 +69,7 @@ async function loadProject(c){
   const q=async(sql,p=[])=>{const r=await c.query(sql,p);return r.rows};
   const p=(await q('select id,name,description,owner,updated_at,updated_by from projects where id=$1',[PROJECT_ID]))[0];
   if(!p) return null;
-  const [modules,requirements,screens,components,entities,fields,relations,apis,logic,logicSteps,timeline,references,tests,testSteps,comments,settingsRows,rolesRows,permissionsRows,rolePermissionRows,moduleAccessRows,usersRows,artifactLinks,taskLinks]=await Promise.all([
+  const [modules,requirements,screens,components,entities,fields,relations,apis,logic,logicSteps,timeline,references,tests,testSteps,comments,settingsRows,artifactLinks,taskLinks,rolesRows,permissionsRows,rolePermissionRows,moduleAccessRows,usersRows]=await Promise.all([
     q('select id,name,icon,color,description,comments from modules where project_id=$1 order by id',[PROJECT_ID]),
     q('select id,module_id as "moduleId",title,actor,priority,status,description,rule,acceptance,comments from requirements where project_id=$1 order by id',[PROJECT_ID]),
     q('select id,module_id as "moduleId",name,type,status,description,oracle_form as "oracleForm",oracle_description as "oracleDescription",comments,saved_at as "savedAt" from screens where project_id=$1 order by id',[PROJECT_ID]),
@@ -85,9 +85,9 @@ async function loadProject(c){
     q('select id,module_id as "moduleId",requirement_id as "requirementId",screen_id as "screenId",entity_id as "entityId",api_id as "apiId",name,test_type as "type",priority,status,preconditions,expected_result as "expectedResult",actual_result as "actualResult",execution_notes as "executionNotes",comments from testing_cases where project_id=$1 order by id',[PROJECT_ID]),
     q('select id,test_case_id,step_order,action,expected_result as "expected",actual_result as "actual",status,comments from testing_steps where test_case_id in (select id from testing_cases where project_id=$1) order by test_case_id,step_order',[PROJECT_ID]),
     q('select id,object_type as "objectType",object_id as "objectId",author_name as "authorName",comment_text as "commentText",created_at as "createdAt" from project_comments where project_id=$1 order by created_at desc',[PROJECT_ID]),
+    q('select autosave,grid_size as "gridSize",show_hints as "showHints" from project_settings where project_id=$1',[PROJECT_ID]),
     q('select id,source_type as "sourceType",source_id as "sourceId",target_type as "targetType",target_id as "targetId",created_by as "createdBy" from artifact_links where project_id=$1 order by created_at',[PROJECT_ID]),
     q('select task_id as "taskId",object_type as "objectType",object_id as "objectId",created_by as "createdBy" from timeline_task_links where task_id in (select id from timeline_tasks where project_id=$1)',[PROJECT_ID]),
-    q('select autosave,grid_size as "gridSize",show_hints as "showHints" from project_settings where project_id=$1',[PROJECT_ID]),
     q('select id,name,description from security_roles where project_id=$1 order by id',[PROJECT_ID]),
     q('select id,code from security_permissions where project_id=$1 order by id',[PROJECT_ID]),
     q('select role_id as "roleId",permission_id as "permissionId" from security_role_permissions where role_id in (select id from security_roles where project_id=$1)',[PROJECT_ID]),
@@ -151,7 +151,16 @@ async function syncSecurity(c,p){
 async function syncLinks(c,p,user){
  const rows=arr(p.links);
  await c.query('delete from artifact_links where project_id=$1',[PROJECT_ID]);
- for(const x of rows){ if(!x?.sourceType||!x?.sourceId||!x?.targetType||!x?.targetId) continue; await c.query(`insert into artifact_links(id,project_id,source_type,source_id,target_type,target_id,created_by) values($1,$2,$3,$4,$5,$6,$7) on conflict(project_id,source_type,source_id,target_type,target_id) do update set created_by=excluded.created_by`,[x.id||`LINK-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,PROJECT_ID,String(x.sourceType),String(x.sourceId),String(x.targetType),String(x.targetId),x.createdBy||user.username]); }
+ const order={requirement:10,screen:20,entity:30,api:40,logic:50,test:60};
+ const seen=new Set();
+ for(const x of rows){
+   if(!x?.sourceType||!x?.sourceId||!x?.targetType||!x?.targetId) continue;
+   let st=String(x.sourceType),sid=String(x.sourceId),tt=String(x.targetType),tid=String(x.targetId);
+   if(st===tt && sid===tid) continue;
+   if((order[st]||999)>(order[tt]||999) || ((order[st]||999)===(order[tt]||999)&&sid>tid)){[st,tt]=[tt,st];[sid,tid]=[tid,sid];}
+   const key=`${st}|${sid}|${tt}|${tid}`; if(seen.has(key)) continue; seen.add(key);
+   await c.query(`insert into artifact_links(id,project_id,source_type,source_id,target_type,target_id,created_by) values($1,$2,$3,$4,$5,$6,$7) on conflict(project_id,source_type,source_id,target_type,target_id) do update set created_by=excluded.created_by`,[x.id||`LINK-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,PROJECT_ID,st,sid,tt,tid,x.createdBy||user.username]);
+ }
  const taskRows=arr(p.taskLinks); await c.query('delete from timeline_task_links where task_id in (select id from timeline_tasks where project_id=$1)',[PROJECT_ID]);
  for(const x of taskRows){ if(!x?.taskId||!x?.objectType||!x?.objectId) continue; await c.query(`insert into timeline_task_links(task_id,object_type,object_id,created_by) values($1,$2,$3,$4) on conflict do nothing`,[x.taskId,x.objectType,x.objectId,x.createdBy||user.username]); }
 }

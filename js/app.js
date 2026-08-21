@@ -1227,16 +1227,43 @@ function commentsField(item,label="Comments / Design Notes"){
   const id=item?.id||''; const entries=(project.comments||[]).filter(c=>c.objectId===id);
   return `<div class="field full comment-field"><label>💬 ${label}</label><textarea name="comments" placeholder="Design notes / summary...">${esc(item?.comments||"")}</textarea><label style="margin-top:8px">Add attributed comment</label><textarea name="newComment" placeholder="Your comment will be saved with your username..."></textarea><div class="field-hint">${entries.length?entries.slice(0,8).map(c=>`<div><b>${esc(c.authorName||'User')}</b> · ${esc(fmtDate(c.createdAt))}: ${esc(c.commentText)}</div>`).join(''):'No attributed comments yet.'}</div></div>`;
 }
+const LINK_ORDER={requirement:10,screen:20,entity:30,api:40,logic:50,test:60};
+function canonicalLink(aType,aId,bType,bId){
+  if(!aType||!aId||!bType||!bId||aType===bType&&String(aId)===String(bId)) return null;
+  const a={type:String(aType),id:String(aId)}, b={type:String(bType),id:String(bId)};
+  const swap=(LINK_ORDER[a.type]||999)>(LINK_ORDER[b.type]||999) || ((LINK_ORDER[a.type]||999)===(LINK_ORDER[b.type]||999)&&a.id>b.id);
+  const s=swap?b:a, t=swap?a:b;
+  return {sourceType:s.type,sourceId:s.id,targetType:t.type,targetId:t.id};
+}
+function linkMatches(l,aType,aId,bType,bId){
+  return (l.sourceType===aType&&String(l.sourceId)===String(aId)&&l.targetType===bType&&String(l.targetId)===String(bId)) ||
+         (l.sourceType===bType&&String(l.sourceId)===String(bId)&&l.targetType===aType&&String(l.targetId)===String(aId));
+}
 function artifactLinkSelector(item,type,label,sourceType){
- const existing=new Set((project.links||[]).filter(l=>l.sourceType===sourceType&&l.sourceId===item?.id&&l.targetType===type).map(l=>l.targetId));
+ const existing=new Set();
+ (project.links||[]).forEach(l=>{
+   if(l.sourceType===sourceType&&String(l.sourceId)===String(item?.id)&&l.targetType===type) existing.add(String(l.targetId));
+   if(l.targetType===sourceType&&String(l.targetId)===String(item?.id)&&l.sourceType===type) existing.add(String(l.sourceId));
+ });
  const list=type==='screen'?project.screens:type==='logic'?project.logic:type==='test'?project.tests:type==='requirement'?project.requirements:type==='api'?project.apis:project.entities;
- return `<div class="field"><label>${label}</label><select name="link_${type}" multiple size="4">${list.map(x=>`<option value="${esc(x.id)}" ${existing.has(x.id)?'selected':''}>${esc(x.id)} — ${esc(x.name||x.title||x.path||'')}</option>`).join('')}</select></div>`;
+ return `<div class="field"><label>${label}</label><select name="link_${type}" multiple size="4">${list.map(x=>`<option value="${esc(x.id)}" ${existing.has(String(x.id))?'selected':''}>${esc(x.id)} — ${esc(x.name||x.title||x.path||'')}</option>`).join('')}</select></div>`;
 }
 function syncFormLinks(sourceType,sourceId,v){
- project.links ||= []; project.links=project.links.filter(l=>!(l.sourceType===sourceType&&l.sourceId===sourceId));
+ project.links ||= [];
  const targets=[['screen',v.link_screen||[]],['logic',v.link_logic||[]],['test',v.link_test||[]],['requirement',v.link_requirement||[]],['api',v.link_api||[]],['entity',v.link_entity||[]]];
- targets.forEach(([type,ids])=>[].concat(ids||[]).forEach(targetId=>project.links.push({id:uid('LINK'),sourceType,sourceId,targetType:type,targetId,createdBy:currentUser()?.username||''})));
+ const targetTypes=new Set(targets.map(x=>x[0]));
+ project.links=project.links.filter(l=>{
+   const touchesSource=(l.sourceType===sourceType&&String(l.sourceId)===String(sourceId)) || (l.targetType===sourceType&&String(l.targetId)===String(sourceId));
+   const otherType=l.sourceType===sourceType?l.targetType:l.targetType===sourceType?l.sourceType:null;
+   return !(touchesSource && targetTypes.has(otherType));
+ });
+ const actor=currentUser()?.username||'';
+ targets.forEach(([type,ids])=>[].concat(ids||[]).forEach(targetId=>{
+   const pair=canonicalLink(sourceType,sourceId,type,targetId);
+   if(pair) project.links.push({id:uid('LINK'),...pair,createdBy:actor});
+ }));
 }
+
 function addProjectComment(){
   modal("Project Comment",`<div class="form-grid"><div class="field full"><label>💬 Comment / Architecture Note</label><textarea name="comment" placeholder="Example: Confirm whether employee transfers need approval from both HR and Operations."></textarea></div></div>`, `<button class="btn secondary" data-action="close-modal">Cancel</button><button class="btn primary" data-action="submit-modal">Add Comment</button>`);
   state.editing={type:"project-comment"};
