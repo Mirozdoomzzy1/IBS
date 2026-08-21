@@ -112,7 +112,12 @@ function apiErrorMessage(status,body){
 }
 async function cockroachFetch(path,options={}){
   if(!supabaseConfigured())throw new Error('Cockroach API is not configured. Edit docs/js/cockroach-config.js.');
-  const r=await fetch(apiUrl(path),{...options,headers:apiHeaders(options.headers||{}),cache:'no-store'});
+  let r;
+  try {
+    r=await fetch(apiUrl(path),{...options,headers:apiHeaders(options.headers||{}),cache:'no-store'});
+  } catch (e) {
+    throw new Error(`Cannot reach the CockroachDB API at ${apiUrl(path)}. Make sure the Vercel deployment contains the /api functions and is deployed successfully. (${e?.message||e})`);
+  }
   const text=await r.text();
   if(!r.ok)throw new Error(apiErrorMessage(r.status,text));
   if(!text)return null; try{return JSON.parse(text)}catch{return text}
