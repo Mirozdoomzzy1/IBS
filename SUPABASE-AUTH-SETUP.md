@@ -19,7 +19,7 @@ Open **SQL Editor → New query**, paste the complete `SUPABASE-SETUP.sql`, and 
 It creates:
 
 - `projects` — shared project JSON
-- `project_revisions` — automatic previous-version backups
+- `revisions` — automatic previous-version backups
 - RLS policies allowing authenticated users to read/write
 - an automatic backup trigger
 
@@ -111,7 +111,7 @@ Reload the shared project before continuing after a conflict.
 
 Before each successful revision change, the previous JSON document is copied to:
 
-`public.project_revisions`
+`public.revisions`
 
 The trigger retains the latest 100 revisions per project.
 

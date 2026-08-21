@@ -335,24 +335,103 @@ window.supabaseLogout=supabaseLogout;
 async function loadSupabaseProject(){
   if(!supabaseConfigured()) return false;
   try{
-    const dataColumn=await detectSupabaseProjectDataColumn();
-    const rows=await supabaseFetch(
-      `/rest/v1/projects?id=eq.${encodeURIComponent(SUPABASE_PROJECT_ID)}&select=id,${dataColumn},revision`,
-      {method:"GET",headers:{Accept:"application/json"}}
-    );
+    // IMPORTANT: the cloud source of truth is the relational tables.
+    // We deliberately do NOT read projects.data/project_data here.
+    const rows=await supabaseFetch(`/rest/v1/projects?id=eq.${encodeURIComponent(SUPABASE_PROJECT_ID)}&select=id,revision,updated_at`,{method:"GET",headers:{Accept:"application/json"}});
     if(!Array.isArray(rows)||!rows.length)return false;
-    project=rows[0][dataColumn];
+    const loaded=await loadRelationalProjectIntoState();
+    if(!loaded)return false;
     normalizeProject();
     supabaseRevision=Number(rows[0].revision||0);
-    projectFilePathLabel="Supabase database";
+    projectFilePathLabel="Supabase relational tables";
     localStorage.setItem("enterpriseSystemDesignStudio",JSON.stringify(project));
     supabaseLastSavedAt=new Date();
     return true;
   }catch(e){
-    console.error("Supabase project load failed",e);
+    console.error("Supabase relational load failed",e);
     if(window.showToast)showToast("☁ Cloud load failed: "+(e.message||e));
     return false;
   }
+}
+
+const RELATIONAL_TABLES={
+  modules:"modules", requirements:"requirements", screens:"screens",
+  entities:"entities", relations:"relations", apis:"apis", logic:"logic",
+  timeline:"timeline", references:"references"
+};
+function relQ(v){return encodeURIComponent(String(v??""));}
+async function relGet(table,select="*"){return await supabaseFetch(`/rest/v1/${table}?project_id=eq.${relQ(SUPABASE_PROJECT_ID)}&select=${select}`,{method:"GET"});}
+async function relReplace(table,rows){
+  const existing=await relGet(table,"id");
+  const wanted=new Set((rows||[]).map(r=>String(r.id)));
+  for(const old of (existing||[])) if(!wanted.has(String(old.id))) await supabaseFetch(`/rest/v1/${table}?project_id=eq.${relQ(SUPABASE_PROJECT_ID)}&id=eq.${relQ(old.id)}`,{method:"DELETE"});
+  if(rows?.length) await supabaseFetch(`/rest/v1/${table}?on_conflict=project_id,id`,{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(rows)});
+}
+function relRow(base,data,extra={}){return Object.assign({project_id:SUPABASE_PROJECT_ID,id:String(data.id),data:data,updated_at:new Date().toISOString()},extra);}
+async function syncRelationalProject(){
+  if(!supabaseConfigured()||!project) return;
+  const now=new Date().toISOString();
+  await relReplace("modules",(project.modules||[]).map(x=>relRow({},x,{name:x.name||null,icon:x.icon||null,color:x.color||null,description:x.description||null,updated_at:now})));
+  await relReplace("requirements",(project.requirements||[]).map(x=>relRow({},x,{module_id:x.moduleId||null,title:x.title||null,actor:x.actor||null,priority:x.priority||null,status:x.status||null,updated_at:now})));
+  await relReplace("screens",(project.screens||[]).map(x=>relRow({},x,{module_id:x.moduleId||null,name:x.name||null,type:x.type||null,status:x.status||null,description:x.description||null,updated_at:now})));
+  const componentRows=(project.screens||[]).flatMap(s=>(s.components||[]).map(c=>({project_id:SUPABASE_PROJECT_ID,screen_id:String(s.id),id:String(c.id),type:c.type||null,label:c.label||null,data:c,updated_at:now})));
+  const existingComponents=await supabaseFetch(`/rest/v1/screen_components?project_id=eq.${relQ(SUPABASE_PROJECT_ID)}&select=screen_id,id`,{method:"GET"});
+  const wantedComponents=new Set(componentRows.map(x=>x.screen_id+"::"+x.id));
+  for(const old of existingComponents||[]) if(!wantedComponents.has(old.screen_id+"::"+old.id)) await supabaseFetch(`/rest/v1/screen_components?project_id=eq.${relQ(SUPABASE_PROJECT_ID)}&screen_id=eq.${relQ(old.screen_id)}&id=eq.${relQ(old.id)}`,{method:"DELETE"});
+  if(componentRows.length) await supabaseFetch(`/rest/v1/screen_components?on_conflict=project_id,screen_id,id`,{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(componentRows)});
+  await relReplace("entities",(project.entities||[]).map(x=>relRow({},x,{name:x.name||null,module_id:x.moduleId||null,x:x.x??null,y:x.y??null,updated_at:now})));
+  const fieldRows=(project.entities||[]).flatMap(e=>(e.fields||[]).map(f=>({project_id:SUPABASE_PROJECT_ID,entity_id:String(e.id),name:String(f.name),data:f,updated_at:now})));
+  const existingFields=await supabaseFetch(`/rest/v1/entity_fields?project_id=eq.${relQ(SUPABASE_PROJECT_ID)}&select=entity_id,name`,{method:"GET"});
+  const wantedFields=new Set(fieldRows.map(x=>x.entity_id+"::"+x.name));
+  for(const old of existingFields||[]) if(!wantedFields.has(old.entity_id+"::"+old.name)) await supabaseFetch(`/rest/v1/entity_fields?project_id=eq.${relQ(SUPABASE_PROJECT_ID)}&entity_id=eq.${relQ(old.entity_id)}&name=eq.${relQ(old.name)}`,{method:"DELETE"});
+  if(fieldRows.length) await supabaseFetch(`/rest/v1/entity_fields?on_conflict=project_id,entity_id,name`,{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(fieldRows)});
+  await relReplace("relations",(project.relations||[]).map(x=>relRow({},x,{from_entity:x.from||null,to_entity:x.to||null,from_field:x.fromField||null,to_field:x.toField||null,cardinality:x.cardinality||null,updated_at:now})));
+  await relReplace("apis",(project.apis||[]).map(x=>relRow({},x,{module_id:x.moduleId||null,method:x.method||null,path:x.path||null,name:x.name||null,status:x.status||null,updated_at:now})));
+  await relReplace("logic",(project.logic||[]).map(x=>relRow({},x,{module_id:x.moduleId||null,name:x.name||null,trigger:x.trigger||null,updated_at:now})));
+  await relReplace("timeline",(project.timeline||[]).map(x=>relRow({},x,{module_id:x.moduleId||null,name:x.name||null,status:x.status||null,start_date:x.start||null,end_date:x.end||null,updated_at:now})));
+  await relReplace("references",(project.references||[]).map(x=>relRow({},x,{module_id:x.moduleId||null,screen_id:x.screenId||null,type:x.type||null,title:x.title||null,updated_at:now})));
+  await syncSecurityTables(now);
+  await supabaseFetch(`/rest/v1/settings?on_conflict=project_id`,{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify({project_id:SUPABASE_PROJECT_ID,data:project.settings||{},updated_at:now})});
+}
+async function syncSecurityTables(now){
+  const sec=project.security||{};
+  const simple=async(table,rows,key="id")=>{
+    const existing=await supabaseFetch(`/rest/v1/${table}?project_id=eq.${relQ(SUPABASE_PROJECT_ID)}&select=${key}`,{method:"GET"});
+    const wanted=new Set((rows||[]).map(x=>String(x[key])));
+    for(const old of existing||[]) if(!wanted.has(String(old[key]))) await supabaseFetch(`/rest/v1/${table}?project_id=eq.${relQ(SUPABASE_PROJECT_ID)}&${key}=eq.${relQ(old[key])}`,{method:"DELETE"});
+    if(rows?.length) await supabaseFetch(`/rest/v1/${table}?on_conflict=project_id,${key}`,{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(rows)});
+  };
+  await simple("users",(sec.users||[]).map(x=>({project_id:SUPABASE_PROJECT_ID,id:String(x.id),username:x.username||null,display_name:x.displayName||null,role:x.role||null,active:x.active!==false,data:x,updated_at:now})));
+  await simple("roles",(sec.roles||[]).map(x=>({project_id:SUPABASE_PROJECT_ID,id:String(x.id),name:x.name||null,description:x.description||null,data:x,updated_at:now})));
+  await simple("permissions",(sec.permissions||[]).map(x=>({project_id:SUPABASE_PROJECT_ID,permission:String(x),data:{permission:x},updated_at:now})),"permission");
+  const access=[]; Object.entries(sec.moduleAccess||{}).forEach(([moduleId,roles])=>Object.entries(roles||{}).forEach(([role,allowed])=>access.push({project_id:SUPABASE_PROJECT_ID,module_id:String(moduleId),role:String(role),allowed:allowed!==false,data:{moduleId,role,allowed},updated_at:now})));
+  const oldAccess=await relGet("module_access","module_id,role");
+  const accessKeys=new Set(access.map(x=>x.module_id+"::"+x.role));
+  for(const old of oldAccess||[]) if(!accessKeys.has(old.module_id+"::"+old.role)) await supabaseFetch(`/rest/v1/module_access?project_id=eq.${relQ(SUPABASE_PROJECT_ID)}&module_id=eq.${relQ(old.module_id)}&role=eq.${relQ(old.role)}`,{method:"DELETE"});
+  if(access.length) await supabaseFetch(`/rest/v1/module_access?on_conflict=project_id,module_id,role`,{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(access)});
+}
+async function loadRelationalProjectIntoState(){
+  const mods=await relGet("modules");
+  if(!mods?.length)return false;
+  project.modules=mods.map(r=>r.data||{id:r.id,name:r.name,icon:r.icon,color:r.color,description:r.description});
+  const req=await relGet("requirements"); project.requirements=(req||[]).map(r=>r.data||{id:r.id,moduleId:r.module_id,title:r.title,actor:r.actor,priority:r.priority,status:r.status});
+  const screens=await relGet("screens"); const comps=await relGet("screen_components");
+  project.screens=(screens||[]).map(r=>Object.assign({},r.data||{id:r.id,moduleId:r.module_id,name:r.name,type:r.type,status:r.status,description:r.description},{components:(comps||[]).filter(c=>c.screen_id===r.id).map(c=>c.data||{id:c.id,type:c.type,label:c.label})}));
+  const ents=await relGet("entities"); const fields=await relGet("entity_fields"); project.entities=(ents||[]).map(r=>Object.assign({},r.data||{id:r.id,name:r.name,moduleId:r.module_id,x:r.x,y:r.y},{fields:(fields||[]).filter(f=>f.entity_id===r.id).map(f=>f.data||{name:f.name})}));
+  const map=["relations","apis","logic","timeline","references"]; for(const k of map){const rows=await relGet(RELATIONAL_TABLES[k]); project[k]=(rows||[]).map(r=>r.data||{});}
+  const settings=await supabaseFetch(`/rest/v1/settings?project_id=eq.${relQ(SUPABASE_PROJECT_ID)}&select=data&limit=1`,{method:"GET"}); if(settings?.[0]?.data)project.settings=settings[0].data;
+  try{
+    const users=await relGet("users"), roles=await relGet("roles"), perms=await relGet("permissions"), access=await relGet("module_access");
+    if(users.length||roles.length||perms.length||access.length){
+      project.security=project.security||{};
+      project.security.users=users.map(r=>r.data||{id:r.id,username:r.username,displayName:r.display_name,role:r.role,active:r.active});
+      project.security.roles=roles.map(r=>r.data||{id:r.id,name:r.name,description:r.description});
+      project.security.permissions=perms.map(r=>r.permission);
+      project.security.moduleAccess={};
+      access.forEach(r=>{project.security.moduleAccess[r.module_id]??={};project.security.moduleAccess[r.module_id][r.role]=r.allowed;});
+    }
+  }catch(e){console.warn("Security relational load skipped",e);}
+  return true;
 }
 
 async function saveProjectToSupabase(){
@@ -360,101 +439,44 @@ async function saveProjectToSupabase(){
     if(window.showToast)showToast("☁ Supabase is not configured.");
     return false;
   }
-  if(!project) return false;
-  if(supabaseSaveInProgress){
-    supabaseSavePending=true;
-    return false;
-  }
-
-  supabaseSaveInProgress=true;
-  supabaseSavePending=false;
-
+  if(!project)return false;
+  if(supabaseSaveInProgress){supabaseSavePending=true;return false;}
+  supabaseSaveInProgress=true; supabaseSavePending=false;
+  setSupabaseDiagnostic("saving","Saving directly into the Supabase relational tables…");
   try{
-    // Always get the current server revision when we don't know it.
-    if(supabaseRevision===null){
-      const rows=await supabaseFetch(
-        `/rest/v1/projects?id=eq.${encodeURIComponent(SUPABASE_PROJECT_ID)}&select=id,revision`,
-        {method:"GET"}
-      );
-      if(rows?.length) supabaseRevision=Number(rows[0].revision||0);
-      else supabaseRevision=0;
-    }
+    // IMPORTANT: do NOT save the whole project into projects.data/project_data.
+    // Each project section is written to its own Supabase table.
+    await syncRelationalProject();
 
-    const expected=Number(supabaseRevision||0);
-
-    // First-run: no row exists yet.
-    if(expected===0){
-      const existing=await supabaseFetch(
-        `/rest/v1/projects?id=eq.${encodeURIComponent(SUPABASE_PROJECT_ID)}&select=id,revision`,
-        {method:"GET"}
-      );
-
-      if(!existing?.length){
-        const dataColumn=await detectSupabaseProjectDataColumn();
-        await supabaseFetch("/rest/v1/projects",{
-          method:"POST",
-          headers:{Prefer:"return=representation"},
-          body:JSON.stringify({
-            id:SUPABASE_PROJECT_ID,
-            [dataColumn]:project,
-            revision:1
-          })
-        });
-        supabaseRevision=1;
-        supabaseLastSavedAt=new Date();
-        projectFilePathLabel="Supabase database";
-        if(window.showToast)showToast("☁ Saved to Supabase ✓ (revision 1)");
-        return true;
-      }
-
-      supabaseRevision=Number(existing[0].revision||0);
-    }
-
-    // Optimistic concurrency update: only update if nobody changed the row
-    // since our last read.
-    const next=Number(supabaseRevision)+1;
-    const rows=await supabaseFetch(
-      `/rest/v1/projects?id=eq.${encodeURIComponent(SUPABASE_PROJECT_ID)}&revision=eq.${encodeURIComponent(supabaseRevision)}`,
-      {
-        method:"PATCH",
-        headers:{Prefer:"return=representation"},
-        body:JSON.stringify({[await detectSupabaseProjectDataColumn()]:project,revision:next})
-      }
-    );
-
-    if(!Array.isArray(rows)||!rows.length){
-      const current=await supabaseFetch(
-        `/rest/v1/projects?id=eq.${encodeURIComponent(SUPABASE_PROJECT_ID)}&select=id,revision`,
-        {method:"GET"}
-      );
-      const serverRevision=current?.[0]?.revision;
-      if(serverRevision===undefined){
-        throw new Error("The Supabase projects table is not available. Run SUPABASE-SETUP.sql once in Supabase SQL Editor.");
-      }
-      throw new Error(`CONFLICT: Supabase is at revision ${serverRevision}; reload the shared project before saving.`);
-    }
-
-    supabaseRevision=next;
+    // projects is only the workspace header / foreign-key parent.
+    // We intentionally update metadata only, never the project JSON.
+    const nextRevision=(Number(supabaseRevision)||0)+1;
+    const result=await supabaseFetch(`/rest/v1/projects?id=eq.${encodeURIComponent(SUPABASE_PROJECT_ID)}`,{
+      method:"PATCH",
+      headers:{Prefer:"return=representation"},
+      body:JSON.stringify({revision:nextRevision,updated_at:new Date().toISOString()})
+    });
+    const row=Array.isArray(result)?result[0]:result;
+    supabaseRevision=Number(row?.revision||nextRevision);
     supabaseLastSavedAt=new Date();
-    projectFilePathLabel="Supabase database";
+    projectFilePathLabel="Supabase relational tables";
     localStorage.setItem("enterpriseSystemDesignStudio",JSON.stringify(project));
-
-    if(window.showToast)setSupabaseDiagnostic("saved",`Saved to Supabase ✓`,{revision:supabaseRevision,lastSaved:new Date().toISOString(),lastError:null}); showToast(`☁ Saved to Supabase ✓ (revision ${supabaseRevision})`);
+    setSupabaseDiagnostic("saved","Saved directly to the Supabase tables ✓",{
+      revision:supabaseRevision,
+      lastSaved:new Date().toISOString(),
+      lastError:null,
+      relationalSaved:true
+    });
+    if(window.showToast)showToast(`☁ Saved to relational tables ✓ (revision ${supabaseRevision})`);
     return true;
-
   }catch(e){
-    setSupabaseDiagnostic("error","Supabase save failed",{lastError:String(e?.message||e)}); console.error("Supabase project save failed",e);
-    if(window.showToast){
-      const msg=String(e?.message||e);
-      showToast("☁ Save failed: "+msg);
-    }
+    setSupabaseDiagnostic("error","Relational table save failed",{lastError:String(e?.message||e)});
+    console.error("Supabase relational table save failed",e);
+    if(window.showToast)showToast("☁ Table save failed: "+(e.message||e));
     return false;
   }finally{
     supabaseSaveInProgress=false;
-    if(supabaseSavePending){
-      supabaseSavePending=false;
-      scheduleSupabaseSave();
-    }
+    if(supabaseSavePending){supabaseSavePending=false;scheduleSupabaseSave();}
   }
 }
 
@@ -709,8 +731,11 @@ function saveProject(show=true){
     lastSavedAt = new Date();
     if(projectFileHandle) writeProjectFile(payload, false);
     if(supabaseConfigured()) {
-      scheduleSupabaseSave();
-      if(show && window.showToast) showToast("Saved — syncing to cloud...");
+      // Every application save is also persisted to Supabase immediately.
+      // The Supabase saver already coalesces overlapping saves, so rapid
+      // edits/new records are queued instead of being lost in localStorage.
+      saveProjectToSupabase();
+      if(show && window.showToast) showToast("Saved — saving to Supabase...");
     } else if(show && window.showToast) {
       showToast(projectFileHandle ? "Project saved to JSON file" : "Project saved locally");
     }
