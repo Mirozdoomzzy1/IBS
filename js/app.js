@@ -11,7 +11,11 @@ const state = {
   selectedComponentId: null,
   screenId: null,
   timelineFilter: null,
-  referenceFilter: "ALL"
+  referenceFilter: "ALL",
+  taskBoardModule: "ALL",
+  taskBoardAssignee: "ALL",
+  taskBoardStatus: "ALL",
+  traceabilityModule: "ALL"
 };
 
 const navSections = [
@@ -28,6 +32,7 @@ const navSections = [
     ["project-erd","◈","Full Project ERD"],
     ["backend","⚙","Backend Logic"],
     ["tasks","☷","Tasks & Traceability"],
+    ["task-board","▥","Task Board"],
     ["traceability","↗","Traceability"],
     ["validation","✓","Validation"],
     ["testing","🧪","Testing"]
@@ -125,7 +130,17 @@ function bindActions(){
     setView(target,el.dataset.module);
   });
   $$("[data-entity]").forEach(el=>el.onclick=()=>{state.erdModule=moduleById(project.entities.find(e=>e.id===el.dataset.entity)?.moduleId)?.id||"ALL";setView("erd");});
+  $$(`[data-link-object]`).forEach(el=>el.onclick=()=>openLinkedObject(el.dataset.linkObject,el.dataset.linkId));
   $$("[data-tab]").forEach(el=>el.onclick=()=>{state.tab=el.dataset.tab; render();});
+}
+
+function openLinkedObject(type,id){
+  const map={requirement:"requirements",screen:"screens",entity:"erd",api:"backend",logic:"backend",test:"testing",task:"timeline",module:"modules"};
+  const objList=type==='requirement'?project.requirements:type==='screen'?project.screens:type==='entity'?project.entities:type==='api'?project.apis:type==='logic'?project.logic:type==='test'?(project.tests||[]):type==='task'?(project.timeline||[]):project.modules;
+  const obj=(objList||[]).find(x=>String(x.id)===String(id));
+  const mid=obj?.moduleId || (type==='task'?obj?.moduleId:null) || (type==='entity'?obj?.moduleId:null);
+  if(type==='entity') state.erdModule=mid||'ALL';
+  setView(map[type]||'modules',mid||null);
 }
 
 function addModulePhaseNav(){
@@ -544,7 +559,24 @@ function renderTasks(){
   const groups=['Planned','In Progress','Blocked','Done'];
   const cards=groups.map(status=>`<div class="task-column"><div class="task-column-head"><span>${status}</span><b>${tasks.filter(t=>t.status===status).length}</b></div>${tasks.filter(t=>t.status===status).map(t=>`<button class="task-card" data-action="edit-timeline-task" data-id="${t.id}"><span class="task-id">${esc(t.id)}</span><strong>${esc(t.name)}</strong><small>${esc(moduleById(t.moduleId)?.name||'Project')} · ${esc(t.layer||'Work')}</small><em>${fmtDate(t.start)} → ${fmtDate(t.end)}</em></button>`).join('')||'<div class="task-empty">No tasks</div>'}</div>`).join('');
   const linked=tasks.filter(t=>t.moduleId).length;
-  $('#content').innerHTML=`<div class="tasks-hero"><div><span class="eyebrow">DELIVERY CONTROL</span><h1>Tasks & Traceability</h1><p>Track every delivery item and connect it back to its module and design stage. The Timeline remains the planning view; this page is the execution view.</p></div><div><button class="btn secondary" data-view="timeline">Timeline</button><button class="btn primary" data-action="new-timeline-task">＋ Task</button></div></div><div class="task-summary"><div><b>${tasks.length}</b><span>Total tasks</span></div><div><b>${tasks.filter(t=>t.status==='Done').length}</b><span>Done</span></div><div><b>${tasks.filter(t=>t.status==='In Progress').length}</b><span>In progress</span></div><div><b>${tasks.filter(t=>t.status==='Blocked').length}</b><span>Blocked</span></div><div><b>${linked}</b><span>Module-linked</span></div></div><div class="task-board">${cards}</div><div class="card task-trace-table"><div class="card-title"><div><h2>Artifact trace</h2><span class="muted small-text">Use the module workspace to follow Requirements → Screens → Backend → ERD.</span></div><button class="btn secondary" data-view="traceability">Open Traceability Matrix</button></div>${project.modules.map(m=>{const c=counts(m.id),p=moduleProgress(m);return `<div class="task-trace-row"><div><strong>${esc(m.name)}</strong><small>${p}% complete</small></div><span>${c.requirements} req</span><span>${c.screens} screens</span><span>${c.apis+c.logic} backend</span><span>${c.entities} tables</span><button class="btn tiny" data-module="${m.id}" data-target="module-workspace">Open</button></div>`}).join('')}</div>`;
+  $('#content').innerHTML=`<div class="tasks-hero"><div><span class="eyebrow">DELIVERY CONTROL</span><h1>Tasks & Traceability</h1><p>Track every delivery item and connect it back to its module and design stage.</p></div><div><button class="btn secondary" data-view="timeline">Timeline</button><button class="btn secondary" data-view="task-board">Task Board</button><button class="btn primary" data-action="new-timeline-task">＋ Task</button></div></div><div class="task-summary"><div><b>${tasks.length}</b><span>Total tasks</span></div><div><b>${tasks.filter(t=>t.status==='Done').length}</b><span>Done</span></div><div><b>${tasks.filter(t=>t.status==='In Progress').length}</b><span>In progress</span></div><div><b>${tasks.filter(t=>t.status==='Blocked').length}</b><span>Blocked</span></div><div><b>${linked}</b><span>Module-linked</span></div></div><div class="task-board">${cards}</div><div class="card task-trace-table"><div class="card-title"><div><h2>Artifact trace</h2><span class="muted small-text">Use Traceability for clickable requirement-to-delivery links.</span></div><button class="btn secondary" data-view="traceability">Open Traceability Matrix</button></div>${project.modules.map(m=>{const c=counts(m.id),p=moduleProgress(m);return `<div class="task-trace-row"><div><strong>${esc(m.name)}</strong><small>${p}% complete</small></div><span>${c.requirements} req</span><span>${c.screens} screens</span><span>${c.apis+c.logic} backend</span><span>${c.entities} tables</span><button class="btn tiny" data-module="${m.id}" data-target="module-workspace">Open</button></div>`}).join('')}</div>`;
+}
+
+function renderTaskBoard(){
+  const all=(project.timeline||[]).slice();
+  const moduleId=state.taskBoardModule||'ALL';
+  const assignee=state.taskBoardAssignee||'ALL';
+  const status=state.taskBoardStatus||'ALL';
+  const filtered=all.filter(t=>(moduleId==='ALL'||t.moduleId===moduleId)&&(assignee==='ALL'||String(t.assigneeId||'')===assignee)&&(status==='ALL'||t.status===status));
+  const users=project.security?.users||[];
+  const assigneeName=t=>t.assigneeName || users.find(u=>u.id===t.assigneeId)?.displayName || users.find(u=>u.id===t.assigneeId)?.username || 'Unassigned';
+  const byAssignee=[...new Set(filtered.map(assigneeName))].sort((a,b)=>a.localeCompare(b));
+  const rows=byAssignee.length?byAssignee.map(name=>{const ts=filtered.filter(t=>assigneeName(t)===name);return `<tr><td><strong>${esc(name)}</strong></td><td>${ts.length}</td><td>${ts.filter(t=>t.status==='Planned').length}</td><td>${ts.filter(t=>t.status==='In Progress').length}</td><td>${ts.filter(t=>t.status==='Blocked').length}</td><td>${ts.filter(t=>t.status==='Done').length}</td><td>${ts.map(t=>`<button class="link-button" data-action="edit-timeline-task" data-id="${esc(t.id)}">${esc(t.name)}</button>`).join('<br>')}</td></tr>`}).join(''):`<tr><td colspan="7"><div class="empty">No tasks match the selected filters.</div></td></tr>`;
+  const statusCards=['Planned','In Progress','Blocked','Done'].map(st=>`<div class="metric card"><div class="metric-icon">${st==='Done'?'✓':st==='Blocked'?'!':st==='In Progress'?'▶':'○'}</div><div class="number">${filtered.filter(t=>t.status===st).length}</div><div class="label">${st}</div></div>`).join('');
+  $('#content').innerHTML=`<div class="card"><div class="card-title"><div><span class="eyebrow">DELIVERY OWNERSHIP</span><h2>Task Board</h2><span class="muted small-text">All tasks grouped by assignee and status. Click a task to open it.</span></div><button class="btn primary" data-action="new-timeline-task">＋ New Task</button></div><div class="toolbar"><div class="left"><label class="field"><span>Module</span><select id="taskBoardModule"><option value="ALL">All Modules</option>${project.modules.map(m=>`<option value="${esc(m.id)}" ${m.id===moduleId?'selected':''}>${esc(m.name)}</option>`).join('')}</select></label><label class="field"><span>Assignee</span><select id="taskBoardAssignee"><option value="ALL">All Assignees</option>${users.map(u=>`<option value="${esc(u.id)}" ${u.id===assignee?'selected':''}>${esc(u.displayName||u.username)}</option>`).join('')}</select></label><label class="field"><span>Status</span><select id="taskBoardStatus"><option value="ALL">All Statuses</option>${['Planned','In Progress','Blocked','Done'].map(x=>`<option value="${x}" ${x===status?'selected':''}>${x}</option>`).join('')}</select></label></div></div></div><div class="grid cards">${statusCards}</div><div class="card"><div class="card-title"><h2>Tasks by Assignee</h2><span class="muted small-text">${filtered.length} matching task(s)</span></div><div class="table-wrap"><table class="table"><thead><tr><th>Assignee</th><th>Total</th><th>Planned</th><th>In Progress</th><th>Blocked</th><th>Done</th><th>Tasks</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+  $('#taskBoardModule').onchange=e=>{state.taskBoardModule=e.target.value;renderTaskBoard();};
+  $('#taskBoardAssignee').onchange=e=>{state.taskBoardAssignee=e.target.value;renderTaskBoard();};
+  $('#taskBoardStatus').onchange=e=>{state.taskBoardStatus=e.target.value;renderTaskBoard();};
 }
 
 function moduleBanner(m){
@@ -1136,9 +1168,16 @@ function renderBackend(){
 
 function renderTraceability(){
   const links=project.links||[];
-  const rows=project.requirements.map(r=>{const get=t=>links.flatMap(l=>l.sourceType==='requirement'&&l.sourceId===r.id&&l.targetType===t?[l.targetId]:l.targetType==='requirement'&&l.targetId===r.id&&l.sourceType===t?[l.sourceId]:[]);const screens=get('screen'),ents=get('entity'),apis=get('api'),logic=get('logic'),tests=get('test');const names=(ids,list,key='name')=>ids.map(id=>esc(list.find(x=>x.id===id)?.[key]||id)).join('<br>');return `<tr><td><strong>${esc(r.id)}</strong><br><span class="muted">${esc(r.title)}</span></td><td>${screens.length?names(screens,project.screens):yesno(false)}</td><td>${ents.length?names(ents,project.entities):yesno(false)}</td><td>${apis.length?names(apis,project.apis):yesno(false)}</td><td>${logic.length?names(logic,project.logic):yesno(false)}</td><td>${tests.length?names(tests,project.tests):yesno(false)}</td></tr>`}).join('');
-  $('#content').innerHTML=`<div class="card"><div class="card-title"><div><h2>Requirement Traceability Matrix</h2><span class="muted small-text">Explicit links between requirements, screens, backend logic, APIs, ERD and testing.</span></div><button class="btn secondary" data-action="export-traceability">Export CSV</button></div><div class="table-wrap"><table class="table"><thead><tr><th>Requirement</th><th>Screen</th><th>ERD</th><th>API</th><th>Logic</th><th>Testing</th></tr></thead><tbody>${rows||`<tr><td colspan="6"><div class="empty">No requirements.</div></td></tr>`}</tbody></table></div></div>`;
+  const moduleId=state.traceabilityModule||'ALL';
+  const reqs=project.requirements.filter(r=>moduleId==='ALL'||r.moduleId===moduleId);
+  const getTargets=(type,id,targetType)=>links.flatMap(l=>{if(l.sourceType===type&&String(l.sourceId)===String(id)&&l.targetType===targetType)return [l.targetId];if(l.targetType===type&&String(l.targetId)===String(id)&&l.sourceType===targetType)return [l.sourceId];return [];});
+  const chip=(type,id,list)=>{const o=(list||[]).find(x=>String(x.id)===String(id));if(!o)return '';const name=o.title||o.name||o.path||o.id;return `<button class="link-button trace-link" data-link-object="${type}" data-link-id="${esc(id)}" title="Open ${esc(name)}"><b>${esc(type.toUpperCase())}</b> ${esc(name)}</button>`;};
+  const rows=reqs.map(r=>{const screens=getTargets('requirement',r.id,'screen'),ents=getTargets('requirement',r.id,'entity'),apis=getTargets('requirement',r.id,'api'),logic=getTargets('requirement',r.id,'logic'),tests=getTargets('requirement',r.id,'test');return `<tr><td>${chip('requirement',r.id,project.requirements)}</td><td>${screens.length?screens.map(id=>chip('screen',id,project.screens)).join(''):yesno(false)}</td><td>${ents.length?ents.map(id=>chip('entity',id,project.entities)).join(''):yesno(false)}</td><td>${apis.length?apis.map(id=>chip('api',id,project.apis)).join(''):yesno(false)}</td><td>${logic.length?logic.map(id=>chip('logic',id,project.logic)).join(''):yesno(false)}</td><td>${tests.length?tests.map(id=>chip('test',id,project.tests)).join(''):yesno(false)}</td></tr>`}).join('');
+  const modules=project.modules.map(m=>`<option value="${esc(m.id)}" ${m.id===moduleId?'selected':''}>${esc(m.name)}</option>`).join('');
+  $('#content').innerHTML=`<div class="card"><div class="card-title"><div><span class="eyebrow">END-TO-END TRACEABILITY</span><h2>Requirement Traceability Matrix</h2><span class="muted small-text">Every linked object is clickable and opens its real phase. Filter the entire matrix by module.</span></div><button class="btn secondary" data-action="export-traceability">Export CSV</button></div><div class="toolbar"><div class="left"><label class="field"><span>Module</span><select id="traceabilityModule"><option value="ALL">All Modules</option>${modules}</select></label></div><div class="right"><span class="tag blue">${reqs.length} requirements</span><span class="tag green">${links.length} links</span></div></div><div class="table-wrap"><table class="table traceability-table"><thead><tr><th>Requirement</th><th>Screen</th><th>ERD</th><th>API</th><th>Logic</th><th>Testing</th></tr></thead><tbody>${rows||`<tr><td colspan="6"><div class="empty">No requirements for this module.</div></td></tr>`}</tbody></table></div></div>`;
+  $('#traceabilityModule').onchange=e=>{state.traceabilityModule=e.target.value;renderTraceability();};
 }
+
 function yesno(v){return `<span class="coverage-cell ${v?"yes":"no"}">${v?"✓":"—"}</span>`}
 
 function renderTesting(){
@@ -1593,7 +1632,7 @@ function nav(){
   const u=currentUser(); const roleKey={Administrator:'ADMIN',Architect:'ARCH',Designer:'DESIGNER',Viewer:'VIEWER'}; const role=roleKey[u?.role]||'VIEWER';
   const can=(id)=>{
     if(id==='access'||id==='settings') return role==='ADMIN';
-    if(['backend','erd','project-erd','screens','requirements','modules','timeline','architecture','technical','traceability','validation','testing','documentation','references','dashboard'].includes(id)) return true;
+    if(['backend','erd','project-erd','screens','requirements','modules','timeline','task-board','architecture','technical','traceability','validation','testing','documentation','references','dashboard'].includes(id)) return true;
     return true;
   };
   const moduleId=state.moduleId;
@@ -1659,9 +1698,9 @@ function render(){
   securityDefaults();
   if(!currentUser()){renderLogin();return;}
   normalizeDesignData(); normalizeComments(); nav();
-  const titles={dashboard:"Design Studio",timeline:"Timeline / Project Plan",architecture:"Architecture Map",technical:"Technical Architecture",modules:"System Blueprint",requirements:"Business Requirements","module-workspace":"Module Workspace",screens:"Screen Designer",erd:"Module ERD","project-erd":"Full Project ERD",backend:"Backend Logic",tasks:"Tasks & Traceability",traceability:"Traceability",validation:"Validation",testing:"Testing",documentation:"Documentation",settings:"Settings",access:"Users & Access",audit:"Audit Log",references:"Reference Images"};
+  const titles={dashboard:"Design Studio",timeline:"Timeline / Project Plan",architecture:"Architecture Map",technical:"Technical Architecture",modules:"System Blueprint",requirements:"Business Requirements","module-workspace":"Module Workspace",screens:"Screen Designer",erd:"Module ERD","project-erd":"Full Project ERD",backend:"Backend Logic",tasks:"Tasks & Traceability","task-board":"Task Board",traceability:"Traceability",validation:"Validation",testing:"Testing",documentation:"Documentation",settings:"Settings",access:"Users & Access",audit:"Audit Log",references:"Reference Images"};
   $("#pageTitle").textContent=titles[state.view]||"Design Studio"; $("#breadcrumb").textContent=state.moduleId?`${titles[state.view]} / ${moduleById(state.moduleId)?.name||""}`:titles[state.view];
-  const handlers={dashboard:renderDashboard,timeline:renderTimeline,architecture:renderArchitecture,technical:renderTechnicalArchitecture,modules:renderModules,"module-workspace":renderModuleWorkspace,requirements:renderRequirements,screens:renderScreens,erd:renderERD,"project-erd":renderProjectERD,backend:renderBackend,tasks:renderTasks,traceability:renderTraceability,validation:renderValidation,testing:renderTesting,documentation:renderDocumentation,settings:renderSettings,access:renderAccess,audit:renderAudit,references:renderReferences};
+  const handlers={dashboard:renderDashboard,timeline:renderTimeline,architecture:renderArchitecture,technical:renderTechnicalArchitecture,modules:renderModules,"module-workspace":renderModuleWorkspace,requirements:renderRequirements,screens:renderScreens,erd:renderERD,"project-erd":renderProjectERD,backend:renderBackend,tasks:renderTasks,"task-board":renderTaskBoard,traceability:renderTraceability,validation:renderValidation,testing:renderTesting,documentation:renderDocumentation,settings:renderSettings,access:renderAccess,audit:renderAudit,references:renderReferences};
   (handlers[state.view]||renderDashboard)(); addModulePhaseNav(); addQuickNavCarousel(); bindActions();
   const top=$('.top-actions'); if(top){top.querySelector('.status-pill')?.insertAdjacentHTML('afterend',`<span class="user-pill">👤 ${esc(currentUser().displayName)} · ${esc(currentUser().role)}</span>`);}
 }
