@@ -321,17 +321,24 @@ window.supabaseLogout=supabaseLogout;
 async function loadSupabaseProject(){
   if(!supabaseConfigured()) return false;
   try{
-    // IMPORTANT: the cloud source of truth is the relational tables.
-    // We deliberately do NOT read projects.data/project_data here.
-    const rows=await supabaseFetch(`/rest/v1/projects?id=eq.${encodeURIComponent(SUPABASE_PROJECT_ID)}&select=id,revision,updated_at`,{method:"GET",headers:{Accept:"application/json"}});
-    if(!Array.isArray(rows)||!rows.length)return false;
-    const loaded=await loadRelationalProjectIntoState();
-    if(!loaded)return false;
+    if(!window.supabase?.createClient) throw new Error("Official Supabase JS client failed to load.");
+    if(!window.ibsSupabaseClient){
+      window.ibsSupabaseClient=window.supabase.createClient(SUPABASE_CONFIG.url,SUPABASE_CONFIG.anonKey,{
+        auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}
+      });
+    }
+    const {data:rows,error}=await window.ibsSupabaseClient.from("projects")
+      .select("id,revision,updated_at")
+      .eq("id",SUPABASE_PROJECT_ID).limit(1);
+    if(error) throw error;
+    if(!rows?.length) return false;
+    const loaded=await loadRelationalProjectSdk();
+    if(!loaded) return false;
     normalizeProject();
     supabaseRevision=Number(rows[0].revision||0);
     projectFilePathLabel="Supabase relational tables";
     localStorage.setItem("enterpriseSystemDesignStudio",JSON.stringify(project));
-    supabaseLastSavedAt=new Date();
+    supabaseLastSavedAt=rows[0].updated_at?new Date(rows[0].updated_at):new Date();
     return true;
   }catch(e){
     console.error("Supabase relational load failed",e);
@@ -339,7 +346,6 @@ async function loadSupabaseProject(){
     return false;
   }
 }
-
 const RELATIONAL_TABLES={
   modules:"modules", requirements:"requirements", screens:"screens",
   entities:"entities", relations:"relations", apis:"apis", logic:"logic",
@@ -420,6 +426,204 @@ async function loadRelationalProjectIntoState(){
   return true;
 }
 
+
+async function sdkDeleteMissing(table, keyColumns, wantedRows){
+  const client=window.ibsSupabaseClient;
+  const wanted=new Set((wantedRows||[]).map(row=>keyColumns.map(k=>String(row[k]??"")).join("::")));
+  const select=keyColumns.join(",");
+  const {data:existing,error:getError}=await client
+    .from(table).select(select).eq("project_id",SUPABASE_PROJECT_ID);
+  if(getError) throw getError;
+  for(const old of (existing||[])){
+    const key=keyColumns.map(k=>String(old[k]??"")).join("::");
+    if(wanted.has(key)) continue;
+    let q=client.from(table).delete().eq("project_id",SUPABASE_PROJECT_ID);
+    for(const k of keyColumns){
+      if(k==="project_id") continue;
+      q=q.eq(k,old[k]);
+    }
+    const {error}=await q;
+    if(error) throw error;
+  }
+}
+
+async function sdkUpsertTable(table, rows, conflict){
+  if(!rows?.length) return;
+  const {error}=await window.ibsSupabaseClient
+    .from(table)
+    .upsert(rows,{onConflict:conflict});
+  if(error) throw error;
+}
+
+function buildRelationalRows(){
+  const now=new Date().toISOString();
+  const rows={};
+  rows.modules=(project.modules||[]).map(x=>({
+    project_id:SUPABASE_PROJECT_ID,id:String(x.id),name:x.name||null,icon:x.icon||null,
+    color:x.color||null,description:x.description||null,data:x,updated_at:now
+  }));
+  rows.requirements=(project.requirements||[]).map(x=>({
+    project_id:SUPABASE_PROJECT_ID,id:String(x.id),module_id:x.moduleId||null,
+    title:x.title||null,actor:x.actor||null,priority:x.priority||null,status:x.status||null,
+    data:x,updated_at:now
+  }));
+  rows.screens=(project.screens||[]).map(x=>({
+    project_id:SUPABASE_PROJECT_ID,id:String(x.id),module_id:x.moduleId||null,
+    name:x.name||null,type:x.type||null,status:x.status||null,description:x.description||null,
+    data:x,updated_at:now
+  }));
+  rows.screen_components=(project.screens||[]).flatMap(s=>(s.components||[]).map(c=>({
+    project_id:SUPABASE_PROJECT_ID,screen_id:String(s.id),id:String(c.id),
+    type:c.type||null,label:c.label||null,data:c,updated_at:now
+  })));
+  rows.entities=(project.entities||[]).map(x=>({
+    project_id:SUPABASE_PROJECT_ID,id:String(x.id),name:x.name||null,module_id:x.moduleId||null,
+    x:x.x??null,y:x.y??null,data:x,updated_at:now
+  }));
+  rows.entity_fields=(project.entities||[]).flatMap(e=>(e.fields||[]).map(f=>({
+    project_id:SUPABASE_PROJECT_ID,entity_id:String(e.id),name:String(f.name),
+    data:f,updated_at:now
+  })));
+  rows.relations=(project.relations||[]).map(x=>({
+    project_id:SUPABASE_PROJECT_ID,id:String(x.id),from_entity:x.from||null,to_entity:x.to||null,
+    from_field:x.fromField||null,to_field:x.toField||null,cardinality:x.cardinality||null,
+    data:x,updated_at:now
+  }));
+  rows.apis=(project.apis||[]).map(x=>({
+    project_id:SUPABASE_PROJECT_ID,id:String(x.id),module_id:x.moduleId||null,
+    method:x.method||null,path:x.path||null,name:x.name||null,status:x.status||null,data:x,updated_at:now
+  }));
+  rows.logic=(project.logic||[]).map(x=>({
+    project_id:SUPABASE_PROJECT_ID,id:String(x.id),module_id:x.moduleId||null,
+    name:x.name||null,trigger:x.trigger||null,data:x,updated_at:now
+  }));
+  rows.timeline=(project.timeline||[]).map(x=>({
+    project_id:SUPABASE_PROJECT_ID,id:String(x.id),module_id:x.moduleId||null,name:x.name||null,
+    status:x.status||null,start_date:x.start||null,end_date:x.end||null,data:x,updated_at:now
+  }));
+  rows.references=(project.references||[]).map(x=>({
+    project_id:SUPABASE_PROJECT_ID,id:String(x.id),module_id:x.moduleId||null,screen_id:x.screenId||null,
+    type:x.type||null,title:x.title||null,data:x,updated_at:now
+  }));
+  rows.settings=[{project_id:SUPABASE_PROJECT_ID,data:project.settings||{},updated_at:now}];
+  rows.users=(project.security?.users||[]).map(x=>({
+    project_id:SUPABASE_PROJECT_ID,id:String(x.id),username:x.username||null,display_name:x.displayName||null,
+    role:x.role||null,active:x.active!==false,data:x,updated_at:now
+  }));
+  rows.roles=(project.security?.roles||[]).map(x=>({
+    project_id:SUPABASE_PROJECT_ID,id:String(x.id),name:x.name||null,description:x.description||null,data:x,updated_at:now
+  }));
+  rows.permissions=(project.security?.permissions||[]).map(p=>({
+    project_id:SUPABASE_PROJECT_ID,permission:String(p),data:{permission:String(p)},updated_at:now
+  }));
+  rows.module_access=[];
+  const access=project.security?.moduleAccess||{};
+  Object.keys(access).forEach(moduleId=>{
+    Object.keys(access[moduleId]||{}).forEach(role=>{
+      rows.module_access.push({
+        project_id:SUPABASE_PROJECT_ID,module_id:String(moduleId),role:String(role),
+        allowed:access[moduleId][role]!==false,
+        data:{moduleId,role,allowed:access[moduleId][role]!==false},updated_at:now
+      });
+    });
+  });
+  return rows;
+}
+
+async function syncRelationalProjectSdk(){
+  const client=window.ibsSupabaseClient;
+  if(!client) throw new Error("Supabase JS client is not initialized.");
+  const rows=buildRelationalRows();
+
+  // Parent first. Keep revision only after every relational table succeeds.
+  const nextRevision=Number(supabaseRevision||0)+1;
+  const {error:parentError}=await client.from("projects").upsert({
+    id:SUPABASE_PROJECT_ID,revision:nextRevision,updated_at:new Date().toISOString()
+  },{onConflict:"id"});
+  if(parentError) throw new Error("projects table: "+parentError.message);
+
+  const tables=[
+    ["screen_components",["screen_id","id"]],
+    ["entity_fields",["entity_id","name"]],
+    ["modules",["id"]],
+    ["requirements",["id"]],
+    ["screens",["id"]],
+    ["entities",["id"]],
+    ["relations",["id"]],
+    ["apis",["id"]],
+    ["logic",["id"]],
+    ["timeline",["id"]],
+    ["references",["id"]],
+    ["settings",[]],
+    ["users",["id"]],
+    ["roles",["id"]],
+    ["permissions",["permission"]],
+    ["module_access",["module_id","role"]]
+  ];
+
+  for(const [table,keys] of tables){
+    if(keys.length) await sdkDeleteMissing(table,keys,rows[table]||[]);
+    else {
+      const {error}=await client.from(table).delete().eq("project_id",SUPABASE_PROJECT_ID);
+      if(error) throw error;
+    }
+    const conflict=["project_id",...keys].join(",");
+    await sdkUpsertTable(table,rows[table]||[],conflict);
+  }
+  return nextRevision;
+}
+
+async function loadRelationalProjectSdk(){
+  const client=window.ibsSupabaseClient;
+  if(!client) throw new Error("Supabase JS client is not initialized.");
+  const get=async(table,select="*")=>{
+    const {data,error}=await client.from(table).select(select).eq("project_id",SUPABASE_PROJECT_ID);
+    if(error) throw new Error(table+": "+error.message);
+    return data||[];
+  };
+
+  const mods=await get("modules");
+  if(!mods.length) return false;
+  const req=await get("requirements");
+  const screens=await get("screens");
+  const comps=await get("screen_components");
+  const ents=await get("entities");
+  const fields=await get("entity_fields");
+  const rels=await get("relations");
+  const apis=await get("apis");
+  const logic=await get("logic");
+  const timeline=await get("timeline");
+  const refs=await get("references");
+  const settings=await get("settings");
+  const users=await get("users");
+  const roles=await get("roles");
+  const perms=await get("permissions");
+  const access=await get("module_access");
+
+  project.modules=mods.map(r=>r.data||{id:r.id,name:r.name,icon:r.icon,color:r.color,description:r.description});
+  project.requirements=req.map(r=>r.data||{id:r.id,moduleId:r.module_id,title:r.title,actor:r.actor,priority:r.priority,status:r.status});
+  project.screens=screens.map(r=>({...r.data||{id:r.id,name:r.name},components:[]}));
+  screens.forEach(r=>{const s=project.screens.find(x=>x.id===r.id);if(s)s.components=comps.filter(c=>c.screen_id===r.id).map(c=>c.data||{id:c.id,type:c.type,label:c.label});});
+  project.entities=ents.map(r=>({...r.data||{id:r.id,name:r.name},fields:[]}));
+  ents.forEach(r=>{const e=project.entities.find(x=>x.id===r.id);if(e)e.fields=fields.filter(f=>f.entity_id===r.id).map(f=>f.data||{name:f.name});});
+  project.relations=rels.map(r=>r.data||{id:r.id,from:r.from_entity,to:r.to_entity,fromField:r.from_field,toField:r.to_field,cardinality:r.cardinality});
+  project.apis=apis.map(r=>r.data||{id:r.id,moduleId:r.module_id,method:r.method,path:r.path,name:r.name,status:r.status});
+  project.logic=logic.map(r=>r.data||{id:r.id,moduleId:r.module_id,name:r.name,trigger:r.trigger});
+  project.timeline=timeline.map(r=>r.data||{id:r.id,moduleId:r.module_id,name:r.name,start:r.start_date,end:r.end_date,status:r.status});
+  project.references=refs.map(r=>r.data||{id:r.id,moduleId:r.module_id,screenId:r.screen_id,type:r.type,title:r.title});
+  if(settings[0]?.data) project.settings=settings[0].data;
+  project.security ||= {};
+  project.security.users=users.map(r=>r.data||{id:r.id,username:r.username,displayName:r.display_name,role:r.role,active:r.active});
+  project.security.roles=roles.map(r=>r.data||{id:r.id,name:r.name,description:r.description});
+  project.security.permissions=perms.map(r=>r.data?.permission||r.permission);
+  project.security.moduleAccess={};
+  access.forEach(r=>{
+    project.security.moduleAccess[r.module_id] ||= {};
+    project.security.moduleAccess[r.module_id][r.role]=r.allowed!==false;
+  });
+  return true;
+}
+
 async function saveProjectToSupabase(){
   if(!supabaseConfigured()){
     if(window.showToast)showToast("☁ Supabase is not configured.");
@@ -430,122 +634,56 @@ async function saveProjectToSupabase(){
 
   supabaseSaveInProgress=true;
   supabaseSavePending=false;
-  setSupabaseDiagnostic("saving","Saving with the official Supabase JavaScript client…");
+  setSupabaseDiagnostic("saving","Saving all project data to Supabase…");
 
   try{
-    // Use @supabase/supabase-js instead of the hand-written REST save path.
-    // This is fully compatible with a static GitHub Pages site.
-    if(!window.supabase?.createClient){
-      throw new Error("Supabase JS client did not load. Check the CDN/network and reload.");
-    }
-
+    if(!window.supabase?.createClient) throw new Error("Official Supabase JS client failed to load.");
     if(!window.ibsSupabaseClient){
-      window.ibsSupabaseClient=window.supabase.createClient(
-        SUPABASE_CONFIG.url,
-        SUPABASE_CONFIG.anonKey,
-        {
-          auth:{
-            persistSession:true,
-            autoRefreshToken:true,
-            detectSessionInUrl:true
-          }
-        }
-      );
-    }
-
-    const client=window.ibsSupabaseClient;
-
-    // Primary path: one PostgreSQL transaction through the relational RPC.
-    const {data:rpcData,error:rpcError}=await client.rpc(
-      "save_ibs_project_relational",
-      {p_project:project}
-    );
-
-    if(!rpcError){
-      const row=Array.isArray(rpcData)?rpcData[0]:rpcData;
-      if(!row?.ok){
-        throw new Error(row?.message||"Supabase RPC did not return ok=true.");
-      }
-
-      supabaseRevision=Number(row.revision||0);
-      supabaseLastSavedAt=new Date();
-      projectFilePathLabel="Supabase relational tables";
-
-      try{
-        localStorage.setItem("enterpriseSystemDesignStudio",JSON.stringify(project));
-        localStorage.setItem("enterpriseSystemDesignStudio.lastSaved",supabaseLastSavedAt.toISOString());
-      }catch(_e){}
-
-      setSupabaseDiagnostic("saved","Saved to Supabase ✓ (relational transaction)",{
-        revision:supabaseRevision,
-        lastSaved:supabaseLastSavedAt.toISOString(),
-        lastError:null,
-        relationalSaved:true,
-        saveMethod:"supabase-js rpc"
+      window.ibsSupabaseClient=window.supabase.createClient(SUPABASE_CONFIG.url,SUPABASE_CONFIG.anonKey,{
+        auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}
       });
-      if(window.showToast)showToast(`☁ Saved to Supabase ✓ (revision ${supabaseRevision})`);
-      return true;
     }
 
-    // Compatibility fallback: save the complete project in projects.data.
-    // This keeps the app working even if the relational RPC has not yet been
-    // installed in the Supabase project. The fallback is still performed by
-    // the official Supabase JS client, not by browser fetch/REST code.
-    console.warn("Relational RPC unavailable; using projects.data fallback:",rpcError);
-
-    const nextRevision=Number(supabaseRevision||0)+1;
-    const {data:upserted,error:upsertError}=await client
-      .from("projects")
-      .upsert({
-        id:SUPABASE_PROJECT_ID,
-        data:project,
-        revision:nextRevision,
-        updated_at:new Date().toISOString()
-      },{onConflict:"id"})
-      .select("id,revision,updated_at")
-      .single();
-
-    if(upsertError){
-      throw new Error(
-        `Relational RPC failed: ${rpcError.message||rpcError}. ` +
-        `Fallback projects save also failed: ${upsertError.message||upsertError}`
-      );
+    let revision;
+    try{
+      revision=await syncRelationalProjectSdk();
+      supabaseRevision=revision;
+      setSupabaseDiagnostic("saved","Saved all relational tables ✓",{
+        revision, lastSaved:new Date().toISOString(), lastError:null,
+        relationalSaved:true,saveMethod:"supabase-js direct relational tables"
+      });
+    }catch(directError){
+      console.warn("Direct relational SDK save failed; trying transactional RPC.",directError);
+      const {data,error}=await window.ibsSupabaseClient.rpc("save_ibs_project_relational",{p_project:project});
+      if(error) throw new Error("Direct relational save failed: "+directError.message+" | RPC save failed: "+error.message);
+      const row=Array.isArray(data)?data[0]:data;
+      if(!row?.ok) throw new Error("Supabase RPC returned an invalid result.");
+      revision=Number(row.revision||0);
+      supabaseRevision=revision;
+      setSupabaseDiagnostic("saved","Saved with Supabase transaction ✓",{
+        revision,lastSaved:new Date().toISOString(),lastError:null,
+        relationalSaved:true,saveMethod:"supabase-js rpc"
+      });
     }
 
-    supabaseRevision=Number(upserted?.revision||nextRevision);
     supabaseLastSavedAt=new Date();
-    projectFilePathLabel="Supabase projects.data fallback";
-
+    projectFilePathLabel="Supabase relational tables";
     try{
       localStorage.setItem("enterpriseSystemDesignStudio",JSON.stringify(project));
       localStorage.setItem("enterpriseSystemDesignStudio.lastSaved",supabaseLastSavedAt.toISOString());
     }catch(_e){}
-
-    setSupabaseDiagnostic("saved","Saved to Supabase ✓ (projects.data fallback)",{
-      revision:supabaseRevision,
-      lastSaved:supabaseLastSavedAt.toISOString(),
-      lastError:null,
-      relationalSaved:false,
-      saveMethod:"supabase-js table upsert",
-      rpcWarning:rpcError.message||String(rpcError)
-    });
     if(window.showToast)showToast(`☁ Saved to Supabase ✓ (revision ${supabaseRevision})`);
     return true;
-
   }catch(e){
-    setSupabaseDiagnostic("error","Supabase save failed",{
-      lastError:String(e?.message||e),
-      saveMethod:"supabase-js"
+    setSupabaseDiagnostic("error","SUPABASE SAVE ERROR — data was NOT confirmed saved",{
+      lastError:String(e?.message||e),saveMethod:"supabase-js"
     });
-    console.error("Supabase JS save failed",e);
-    if(window.showToast)showToast("☁ Supabase save failed: "+(e.message||e));
+    console.error("SUPABASE SAVE ERROR",e);
+    if(window.showToast)showToast("☁ SAVE FAILED: "+(e?.message||e));
     return false;
   }finally{
     supabaseSaveInProgress=false;
-    if(supabaseSavePending){
-      supabaseSavePending=false;
-      scheduleSupabaseSave();
-    }
+    if(supabaseSavePending){supabaseSavePending=false;scheduleSupabaseSave();}
   }
 }
 function scheduleSupabaseSave(){
