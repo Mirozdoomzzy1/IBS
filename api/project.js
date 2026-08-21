@@ -20,15 +20,19 @@ const AUDIT_SECTIONS = {
   timeline: {table:'timeline_tasks', label:'Task', name:'name', module:'module_id'},
   references: {table:'reference_images', label:'Reference Image', name:'title', module:'module_id'},
   tests: {table:'testing_cases', label:'Test Case', name:'name', module:'module_id'},
-  comments: {table:'project_comments', label:'Comment', name:'comment_text', module:null}
+  comments: {table:'project_comments', label:'Comment', name:'comment_text', module:null},
+  links: {table:'artifact_links', label:'Artifact Link', name:'id', module:null}
 };
 
 async function auditSnapshot(c, section){
   const cfg=AUDIT_SECTIONS[section];
   if(!cfg) return new Map();
+  if(section==='links'){
+    const r=await c.query(`select id, source_type, source_id, target_type, target_id, created_by, md5(to_jsonb(t)::text) as fingerprint from artifact_links t where project_id=$1`,[PROJECT_ID]);
+    return new Map(r.rows.map(x=>[String(x.id),{...x,display_name:`${x.source_type}:${x.source_id} → ${x.target_type}:${x.target_id}`,module_id:null}]));
+  }
   const cols = [`id`, `${cfg.name} AS display_name`, cfg.module ? `${cfg.module} AS module_id` : `NULL AS module_id`, `md5(to_jsonb(t)::text) AS fingerprint`].join(',');
-  const where = cfg.table === 'project_comments' ? 'project_id=$1' : 'project_id=$1';
-  const r=await c.query(`select ${cols} from ${cfg.table} t where ${where}`,[PROJECT_ID]);
+  const r=await c.query(`select ${cols} from ${cfg.table} t where project_id=$1`,[PROJECT_ID]);
   return new Map(r.rows.map(x=>[String(x.id),x]));
 }
 
@@ -52,14 +56,17 @@ async function auditSectionDiff(c,user,section,before){
     const old=before.get(id);
     const display=String(row.display_name||id);
     if(!old){
-      await writeAudit(c,user,'CREATE',cfg.label,id,row.module_id,{exactAction:`Created ${cfg.label.toLowerCase()}`,objectName:display});
+      const action=section==='links' ? `Linked ${String(row.source_type||'object')} ${row.source_id} to ${String(row.target_type||'object')} ${row.target_id}` : `Created ${cfg.label.toLowerCase()}`;
+      await writeAudit(c,user,'CREATE',cfg.label,id,row.module_id,{exactAction:action,objectName:display,sourceType:row.source_type,targetType:row.target_type,sourceId:row.source_id,targetId:row.target_id});
     }else if(old.fingerprint!==row.fingerprint){
-      await writeAudit(c,user,'UPDATE',cfg.label,id,row.module_id,{exactAction:`Updated ${cfg.label.toLowerCase()}`,objectName:display});
+      const action=section==='links' ? `Updated link ${display}` : `Updated ${cfg.label.toLowerCase()}`;
+      await writeAudit(c,user,'UPDATE',cfg.label,id,row.module_id,{exactAction:action,objectName:display});
     }
   }
   for(const [id,row] of before){
     if(!after.has(id)){
-      await writeAudit(c,user,'DELETE',cfg.label,id,row.module_id,{exactAction:`Deleted ${cfg.label.toLowerCase()}`,objectName:String(row.display_name||id)});
+      const action=section==='links' ? `Unlinked ${String(row.source_type||'object')} ${row.source_id} from ${String(row.target_type||'object')} ${row.target_id}` : `Deleted ${cfg.label.toLowerCase()}`;
+      await writeAudit(c,user,'DELETE',cfg.label,id,row.module_id,{exactAction:action,objectName:String(row.display_name||id),sourceType:row.source_type,targetType:row.target_type,sourceId:row.source_id,targetId:row.target_id});
     }
   }
 }
