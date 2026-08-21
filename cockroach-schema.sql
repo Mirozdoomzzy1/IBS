@@ -9,15 +9,6 @@ create table if not exists projects (
   updated_by string
 );
 
-create table if not exists project_revisions (
-  project_id string not null references projects(id) on delete cascade,
-  revision int8 not null,
-  data jsonb not null,
-  saved_by string,
-  saved_at timestamptz not null default now(),
-  primary key(project_id,revision)
-);
-
 create table if not exists app_users (
   id string primary key,
   username string not null unique,

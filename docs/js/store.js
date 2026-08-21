@@ -102,6 +102,7 @@ const SUPABASE_SESSION_KEY = "ibs_cockroach_session";
 const COCKROACH_API_URL = String(window.COCKROACH_API_URL||"").replace(/\/$/,"");
 let supabaseSaveTimer=null,supabaseSaveInProgress=false,supabaseSavePending=false;
 let supabaseLastSavedAt=null,supabaseRevision=null,supabaseAuthUser=null,supabaseSession=null;
+let lastPersistedProjectJson=null;
 let localAuthUser=null;
 
 function supabaseConfigured(){return /^https:\/\/[^\s]+\/api$/.test(COCKROACH_API_URL)||/^https?:\/\/localhost/.test(COCKROACH_API_URL);}
@@ -141,6 +142,7 @@ async function loadSupabaseProject(){
     if(!r?.project)throw new Error('CockroachDB returned no project data.');
     project=r.project; normalizeProject();
     supabaseRevision=Number(r.revision||0);supabaseLastSavedAt=r.updated_at?new Date(r.updated_at):null;
+    lastPersistedProjectJson=JSON.stringify(project);
     projectFilePathLabel='CockroachDB';
     setSupabaseDiagnostic('connected',`Connected to CockroachDB · revision ${supabaseRevision}`,{revision:supabaseRevision,lastError:null});
     return true;
@@ -149,6 +151,7 @@ async function loadSupabaseProject(){
     if(/Project not found/i.test(msg)){
       setSupabaseDiagnostic('connected','CockroachDB connected · project will be created on first save',{revision:0,lastError:null});
       supabaseRevision=0;
+      lastPersistedProjectJson=null;
       return false;
     }
     setSupabaseDiagnostic('error','CockroachDB cloud load failed',{lastError:msg});
@@ -160,12 +163,17 @@ async function saveProjectToSupabase(){
   if(!supabaseConfigured()){if(window.showToast)showToast('Cockroach API is not configured.');return false;}
   if(!project)return false;
   if(!supabaseSession?.access_token){if(window.showToast)showToast('Sign in before saving.');return false;}
+  const currentProjectJson=JSON.stringify(project);
+  if(lastPersistedProjectJson===currentProjectJson){
+    return true;
+  }
   if(supabaseSaveInProgress){supabaseSavePending=true;return false;}
   supabaseSaveInProgress=true;supabaseSavePending=false;
   setSupabaseDiagnostic('saving','Saving all project data to CockroachDB…');
   try{
     const r=await cockroachFetch('/project',{method:'PUT',body:JSON.stringify({revision:Number(supabaseRevision||0),project})});
     supabaseRevision=Number(r.revision||0);supabaseLastSavedAt=new Date();projectFilePathLabel='CockroachDB';
+    lastPersistedProjectJson=JSON.stringify(project);
     setSupabaseDiagnostic('saved','Saved all project data to CockroachDB ✓',{revision:supabaseRevision,lastSaved:supabaseLastSavedAt.toISOString(),lastError:null});
     if(window.showToast)showToast(`☁ Saved to CockroachDB ✓ (revision ${supabaseRevision})`);
     return true;
@@ -443,14 +451,13 @@ async function connectProjectFile(){
 }
 function projectFileStatus(){ return projectFilePathLabel; }
 function scheduleSave(){
-  if(project?.settings?.autosave===false) return;
+  // Kept for compatibility with older UI code, but it only schedules an explicit save request.
   clearTimeout(saveTimer);
   saveTimer=setTimeout(()=>saveProject(false), 300);
 }
 function installPersistence(){
-  window.addEventListener('beforeunload',()=>saveProject(false));
-  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')saveProject(false);});
-  setInterval(()=>{if(project?.settings?.autosave!==false)saveProject(false);}, 5000);
+  // Cloud persistence is event-driven only: saveProject() is called by actual data mutations.
+  // No interval, beforeunload save, or visibility-change save is used.
 }
 function projectFileName(ext){
   return (project?.project?.name || "system-design").replace(/[^a-z0-9]+/gi,"-").replace(/^-|-$/g,"").toLowerCase()+ext;

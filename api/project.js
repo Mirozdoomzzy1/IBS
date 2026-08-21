@@ -34,8 +34,9 @@ export default async function handler(req,res){
           if(!hash) hash=await bcrypt.hash('change-me',12);
           await c.query(`insert into app_users(id,username,display_name,role,active,password_hash) values($1,$2,$3,$4,$5,$6) on conflict(username) do update set id=excluded.id,display_name=excluded.display_name,role=excluded.role,active=excluded.active,password_hash=excluded.password_hash`,[String(u.id||u.username),String(u.username).trim(),u.displayName||u.username,u.role||'Viewer',u.active!==false,hash]);
         }
-        await c.query('insert into project_revisions(project_id,revision,data,saved_by) values($1,$2,$3,$4)',[PROJECT_ID,next,JSON.stringify(project),user.username]);
-        await c.query('insert into project_audit(project_id,actor_name,action,object_type,object_id,metadata) values($1,$2,$3,$4,$5,$6)',[PROJECT_ID,user.displayName||user.username,'SAVE','project',PROJECT_ID,JSON.stringify({revision:next})]);
+        // Intentionally do NOT create project revision snapshots or audit rows for normal saves.
+        // The current project document is the only persisted copy; comments and explicit audit actions
+        // may still use project_audit through their dedicated endpoints.
         return next;
       });
       return json(res,200,{ok:true,revision:out});
