@@ -35,7 +35,8 @@
       'modules':['modules'],
       'erd':['erd'],
       'settings':['settings'],
-      'dashboard':['dashboard']
+      'dashboard':['dashboard'],
+      'my-tasks':['my-tasks']
     };
     for(const v of (candidates[view]||[])){
       const e=document.getElementById(v);
@@ -51,6 +52,7 @@
       if(e)e.click(); else closeNav();
     });
     qa('[data-v12-view]').forEach(e=>e.addEventListener('click',()=>go(e.dataset.v12View)));
+    try{ const u=window.currentUser?.(); if(u?.role==='Manager') qa('[data-v12-non-manager]').forEach(e=>e.style.display='none'); }catch(_){}
     document.addEventListener('keydown',e=>{if(e.key==='Escape')closeNav()});
     window.addEventListener('resize',()=>{if(innerWidth>900)closeNav()},{passive:true});
   });

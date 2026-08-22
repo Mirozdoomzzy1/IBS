@@ -499,6 +499,8 @@ body.erd-dragging{cursor:grabbing!important;user-select:none!important}
   .component-palette .palette-group-title{position:sticky!important;top:0!important;z-index:5!important;background:#fbfcfe!important}
 }
 .documentation-shell{display:grid;gap:14px}.documentation-hero{display:flex;justify-content:space-between;gap:18px;align-items:flex-start}.documentation-actions{display:flex;gap:7px;flex-wrap:wrap}.documentation-filterbar{display:flex;gap:8px;flex-wrap:wrap}.documentation-filterbar input,.documentation-filterbar select{min-width:180px;border:1px solid var(--line);border-radius:9px;padding:9px;background:#fff}.documentation-tabs{display:flex;gap:5px;overflow:auto;border-bottom:1px solid var(--line);padding-bottom:5px}.documentation-tab{border:1px solid transparent;background:#f7f9fc;border-radius:8px;padding:8px 10px;font-size:9px;font-weight:800;color:#607087;white-space:nowrap}.documentation-tab.active{background:#edf2ff;color:#315ee8;border-color:#cbd8ff}.documentation-section{display:grid;gap:10px}.documentation-object-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.documentation-object{border:1px solid #e2e8f0;border-radius:11px;padding:11px;background:#fff}.documentation-object h4{margin:0 0 4px;font-size:11px}.documentation-object p{margin:0;color:#708096;font-size:9px;line-height:1.5}.documentation-meta{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px}.documentation-preview{min-height:280px;max-height:620px;overflow:auto;border:1px solid var(--line);border-radius:10px;background:#fff;padding:20px}.documentation-preview h1{font-size:22px}.documentation-preview h2{font-size:15px;border-bottom:1px solid #e8edf3;padding-bottom:6px;margin-top:22px}.documentation-preview table{width:100%;border-collapse:collapse;font-size:9px}.documentation-preview th,.documentation-preview td{border:1px solid #e2e7ee;padding:6px;text-align:left}.documentation-preview th{background:#f5f7fa}@media(max-width:700px){.documentation-hero{flex-direction:column}.documentation-object-grid{grid-template-columns:1fr}.documentation-filterbar input,.documentation-filterbar select{width:100%;min-width:0}.documentation-preview{padding:13px}}
+.back-btn{display:inline-flex;align-items:center;gap:6px;margin-right:6px}.back-btn:disabled{opacity:.45;cursor:not-allowed}
+@media(max-width:700px){.back-btn{padding:8px 10px}.back-btn span.back-label{display:none}}
 </style>
 </head>
 <body>
@@ -517,7 +519,13 @@ body.erd-dragging{cursor:grabbing!important;user-select:none!important}
     <div class="v12-mf-section">
       <div class="v12-mf-title">WORKSPACE</div>
       <button class="v12-mf-item" data-v12-view="dashboard"><span class="v12-mf-icon">⌂</span><span><strong>Dashboard</strong><small>Project overview</small></span></button>
-      <button class="v12-mf-item" data-v12-view="timeline"><span class="v12-mf-icon">◷</span><span><strong>Timeline</strong><small>Plan and delivery</small></span></button>
+      <button class="v12-mf-item" data-v12-view="my-tasks" data-v12-non-manager="true"><span class="v12-mf-icon">✓</span><span><strong>My Tasks</strong><small>Tasks assigned to me</small></span></button>
+    </div>
+    <div class="v12-mf-section">
+      <div class="v12-mf-title">PROJECT MANAGEMENT</div>
+      <button class="v12-mf-item" data-v12-view="timeline"><span class="v12-mf-icon">◷</span><span><strong>Timeline / Plan</strong><small>Plan and delivery</small></span></button>
+      <button class="v12-mf-item" data-v12-view="task-board"><span class="v12-mf-icon">▥</span><span><strong>Task Board</strong><small>Tasks by assignee/status</small></span></button>
+      <button class="v12-mf-item" data-v12-view="traceability"><span class="v12-mf-icon">↗</span><span><strong>Traceability</strong><small>Connected project objects</small></span></button>
       <button class="v12-mf-item" data-v12-view="modules"><span class="v12-mf-icon">▦</span><span><strong>System Blueprint</strong><small>Modules + four stages</small></span></button>
       <button class="v12-mf-item" data-v12-view="architecture"><span class="v12-mf-icon">◎</span><span><strong>Architecture Map</strong><small>System relationships</small></span></button>
     </div>
@@ -529,11 +537,9 @@ body.erd-dragging{cursor:grabbing!important;user-select:none!important}
       <button class="v12-mf-item" data-v12-view="erd"><span class="v12-mf-icon">◇</span><span><strong>Module ERD</strong><small>Tables and relationships</small></span></button>
       <button class="v12-mf-item" data-v12-view="full-erd"><span class="v12-mf-icon">◈</span><span><strong>Full Project ERD</strong><small>Complete database model</small></span></button>
       <button class="v12-mf-item" data-v12-view="backend"><span class="v12-mf-icon">⌘</span><span><strong>Backend Logic</strong><small>APIs & workflows</small></span></button>
-      <button class="v12-mf-item" data-v12-view="tasks"><span class="v12-mf-icon">☷</span><span><strong>Tasks & Traceability</strong><small>Execution tracking</small></span></button>
     </div>
     <div class="v12-mf-section">
       <div class="v12-mf-title">GOVERNANCE</div>
-      <button class="v12-mf-item" data-v12-view="traceability"><span class="v12-mf-icon">↗</span><span><strong>Traceability</strong><small>Requirement to implementation</small></span></button>
       <button class="v12-mf-item" data-v12-view="validation"><span class="v12-mf-icon">✓</span><span><strong>Validation</strong><small>Quality gates</small></span></button>
       <button class="v12-mf-item" data-v12-view="documentation"><span class="v12-mf-icon">▧</span><span><strong>Documentation</strong><small>Project knowledge</small></span></button>
     </div>
@@ -581,6 +587,7 @@ body.erd-dragging{cursor:grabbing!important;user-select:none!important}
           <h1 id="pageTitle">Design Studio</h1>
         </div>
         <div class="top-actions">
+          <button class="btn secondary back-btn" data-action="back" title="Go back">← <span class="back-label">Back</span></button>
           <span class="status-pill"><span class="status-dot"></span> CockroachDB cloud project</span>
           <button class="btn secondary" data-action="add-project-comment">💬 Comment</button><button class="btn secondary" data-action="export-project">Export</button><button class="btn secondary auth-btn-global" data-action="logout">↪ Sign out</button>
           <button class="btn primary" data-action="new-item">＋ New</button>

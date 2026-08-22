@@ -15,7 +15,8 @@ const state = {
   taskBoardModule: "ALL",
   taskBoardAssignee: "ALL",
   taskBoardStatus: "ALL",
-  traceabilityModule: "ALL"
+  traceabilityModule: "ALL",
+  viewHistory: []
 };
 
 const navSections = [
@@ -30,6 +31,7 @@ const navSections = [
   ]},
   {title:"PROJECT MANAGEMENT", items:[
     ["dashboard","⌂","Dashboard"],
+    ["my-tasks","✓","My Tasks"],
     ["modules","▦","System Blueprint"],
     ["timeline","◷","Timeline / Plan"],
     ["tasks","☷","Tasks & Traceability"],
@@ -573,7 +575,7 @@ function renderModules(){
 
 function renderModuleWorkspace(){
   const m=moduleById(state.moduleId)||project.modules[0];
-  if(!m){state.view='modules';renderModules();return;}
+  if(!m){setView('modules');return;}
   const c=counts(m.id), progress=moduleProgress(m), tab=state.tab||'requirements';
   const req=project.requirements.filter(x=>x.moduleId===m.id), screens=project.screens.filter(x=>x.moduleId===m.id), apis=project.apis.filter(x=>x.moduleId===m.id), logic=project.logic.filter(x=>x.moduleId===m.id), ents=project.entities.filter(x=>x.moduleId===m.id), tasks=(project.timeline||[]).filter(x=>x.moduleId===m.id);
   const tabs=[['requirements','1','Gather Requirements',c.requirements],['screens','2','Suggested Screens',c.screens],['backend','3','Backend Logic',c.apis+c.logic],['erd','4','ERD',c.entities],['testing','5','Testing',c.tests]];
@@ -593,6 +595,14 @@ function renderModuleWorkspace(){
   $('#content').innerHTML=`<div class="module-workspace-head"><button class="btn secondary" data-view="modules">← Blueprint</button><div class="workspace-module-title"><span class="module-icon">${esc(m.icon)}</span><div><span class="eyebrow">MODULE WORKSPACE</span><h1>${esc(m.name)}</h1><p>${esc(m.description)}</p></div></div><div class="workspace-progress"><b>${progress}%</b><span>5-stage completion</span><div class="progress"><span style="width:${progress}%"></span></div></div></div><div class="workspace-tabs">${tabButtons}</div><div class="workspace-stage-panel">${body}</div>`;
   $$('[data-open-screen]').forEach(b=>b.onclick=()=>{state.moduleId=m.id;state.screenId=b.dataset.openScreen;state.view='screens';render();});
   $('#moduleOracleUpload')?.addEventListener('change',e=>handleReferenceFiles(e.target.files,m.id,null,'Oracle Form'));
+}
+
+function renderMyTasks(){
+  const u=currentUser()||{};
+  const tasks=(project.timeline||[]).filter(t=>String(t.assigneeId||'')===String(u.id||'') || String(t.assigneeName||'').toLowerCase()===String(u.displayName||u.username||'').toLowerCase()).slice().sort((a,b)=>String(a.start||'').localeCompare(String(b.start||'')));
+  const groups=['Planned','In Progress','Blocked','Done'];
+  const cards=groups.map(status=>`<div class="task-column"><div class="task-column-head"><span>${status}</span><b>${tasks.filter(t=>t.status===status).length}</b></div>${tasks.filter(t=>t.status===status).map(t=>`<button class="task-card" data-action="edit-timeline-task" data-id="${esc(t.id)}"><span class="task-id">${esc(t.id)}</span><strong>${esc(t.name)}</strong><small>${esc(moduleById(t.moduleId)?.name||'Project')} · ${esc(t.layer||'Work')}</small><em>${fmtDate(t.start)} → ${fmtDate(t.end)}</em></button>`).join('')||'<div class="task-empty">No tasks</div>'}</div>`).join('');
+  $('#content').innerHTML=`<div class="tasks-hero"><div><span class="eyebrow">MY WORK</span><h1>My Tasks</h1><p>Tasks assigned to <strong>${esc(u.displayName||u.username||'you')}</strong>. Click any task to view its details and comments.</p></div><div><button class="btn secondary" data-view="task-board">All Tasks</button><button class="btn secondary" data-view="timeline">Timeline</button></div></div><div class="task-summary"><div><b>${tasks.length}</b><span>Total tasks</span></div><div><b>${tasks.filter(t=>t.status==='Done').length}</b><span>Done</span></div><div><b>${tasks.filter(t=>t.status==='In Progress').length}</b><span>In progress</span></div><div><b>${tasks.filter(t=>t.status==='Blocked').length}</b><span>Blocked</span></div></div><div class="task-board">${cards}</div>`;
 }
 
 function renderTasks(){
@@ -661,7 +671,7 @@ function renderScreens(){
   if(!state.moduleId && !state.screenId){
     const groups=project.modules.map(m=>{const ss=project.screens.filter(s=>s.moduleId===m.id);return `<div class="screen-module-card"><div class="screen-module-card-head"><div><span class="eyebrow">${esc(m.name)}</span><h3>${ss.length} screens</h3></div><button class="btn tiny" data-module="${m.id}" data-target="screens">Open module</button></div><div class="screen-module-screen-list">${ss.map(s=>`<button data-open-screen="${s.id}"><span>▣</span><div><strong>${esc(s.name)}</strong><small>${esc(s.type||'Screen')} · ${(s.components||[]).length} components</small>${linkedObjects("screen",s.id)}</div></button>`).join('') || '<div class="muted small-text">No screens yet.</div>'}</div><button class="btn secondary" style="width:100%;margin-top:10px" data-action="new-screen-for-module" data-id="${m.id}">＋ Add screen to ${esc(m.name)}</button></div>`}).join('');
     $("#content").innerHTML=`<div class="screen-overview-head"><div><div class="eyebrow">SCREEN DESIGN SYSTEM</div><h2>All Module Screens</h2><p>Every module has its own screen library. Open any screen to design components, data mapping, validation and comments.</p></div><button class="btn primary" data-action="new-screen">＋ New Screen</button></div><div class="screen-module-grid">${groups}</div>`;
-    $$('[data-open-screen]').forEach(b=>b.onclick=()=>{const sc=project.screens.find(x=>x.id===b.dataset.openScreen);state.moduleId=sc?.moduleId;state.screenId=sc?.id;state.selectedComponentId=null;renderScreens();});
+    $$('[data-open-screen]').forEach(b=>b.onclick=()=>{const sc=project.screens.find(x=>x.id===b.dataset.openScreen);state.moduleId=sc?.moduleId;state.screenId=sc?.id;state.selectedComponentId=null;state.viewHistory ||= []; state.viewHistory.push({view:'screens',moduleId:sc?.moduleId,screenId:null,tab:'list'}); renderScreens();});
     $$('[data-action="new-screen-for-module"]').forEach(b=>b.onclick=(e)=>{e.preventDefault();e.stopPropagation();state.moduleId=b.dataset.id;state.screenId=null;state.selectedComponentId=null;state.editing={type:'screen',fromDesigner:true};modal('Create Screen',screenForm({id:uid('SCR'),moduleId:state.moduleId,name:'',type:'Form',status:'Draft',description:'',components:[],comments:''}),`<button class="btn secondary" data-action="close-modal">Cancel</button><button class="btn primary" data-action="submit-modal">Create Screen</button>`,true);});
     return;
   }
@@ -1607,6 +1617,7 @@ function handleAction(action,id){
 
   switch(action){
     case "add-project-comment": addProjectComment();break;
+    case "back": goBack(); break;
     case "logout": logout(); break;
     case "refresh-audit": renderAudit(); break;
     case "new-user": state.editing={type:"user"};modal("New User",userForm());break;
@@ -1808,6 +1819,7 @@ function securityDefaults(){
     });
   });
 }
+window.currentUser=()=>currentUser();
 function currentUser(){
   if(typeof localAuthUser!=="undefined" && localAuthUser) return localAuthUser;
   if(typeof useLocalAdminFallback==="function"){
@@ -1822,12 +1834,24 @@ async function logout(){
 }
 window.logout=logout;
 
+function goBack(){
+  const h=state.viewHistory||[];
+  const prev=h.pop();
+  if(!prev){ if(state.view!=='dashboard') setView('dashboard'); return; }
+  state.view=prev.view; state.moduleId=prev.moduleId||null; state.screenId=prev.screenId||null; state.tab=prev.tab||'requirements'; render();
+}
+
 function setView(view,moduleId=null){
   if(view==='access' && !hasAccess('SECURITY.VIEW')){showToast('You do not have security-center access');return;}
   if(['requirements','screens','erd','project-erd','backend','modules','timeline'].includes(view) && currentUser()?.role==='Viewer' && view==='modules'){/* allowed read-only */}
   if(moduleId && project.security?.moduleAccess){
     const u=currentUser(); const roleKey={Administrator:'ADMIN',Architect:'ARCH',Designer:'DESIGNER',Manager:'MANAGER',Viewer:'VIEWER'}; const role=roleKey[u?.role]||'VIEWER';
     if(project.security.moduleAccess[moduleId]?.[role]===false){showToast('Your role does not have access to this module');return;}
+  }
+  if(view!==state.view){
+    state.viewHistory ||= [];
+    state.viewHistory.push({view:state.view,moduleId:state.moduleId,screenId:state.screenId,tab:state.tab});
+    if(state.viewHistory.length>30) state.viewHistory.shift();
   }
   state.view=view; if(moduleId!==null) state.moduleId=moduleId;
   if(view!=='screens'){state.screenId=null;state.selectedComponentId=null;}
@@ -1840,6 +1864,7 @@ function nav(){
   const can=(id)=>{
     if(id==='access'||id==='settings') return role==='ADMIN';
     if(id==='manager-dashboard') return role==='MANAGER' || role==='ADMIN';
+    if(id==='my-tasks') return role!=='MANAGER';
     if(['backend','erd','project-erd','screens','requirements','modules','timeline','task-board','architecture','technical','traceability','validation','testing','documentation','references','dashboard'].includes(id)) return true;
     return true;
   };
@@ -1907,12 +1932,14 @@ function render(){
   securityDefaults();
   if(!currentUser()){renderLogin();return;}
   normalizeDesignData(); normalizeComments(); nav();
-  const titles={dashboard:"Design Studio","manager-dashboard":"Manager Dashboard",timeline:"Timeline / Project Plan",architecture:"Architecture Map",technical:"Technical Architecture",modules:"System Blueprint",requirements:"Business Requirements","module-workspace":"Module Workspace",screens:"Screen Designer",erd:"Module ERD","project-erd":"Full Project ERD",backend:"Backend Logic",tasks:"Tasks & Traceability","task-board":"Task Board",traceability:"Traceability",validation:"Validation",testing:"Testing",documentation:"Documentation",settings:"Settings",access:"Users & Access",audit:"Audit Log",references:"Reference Images"};
+  const titles={dashboard:"Design Studio","manager-dashboard":"Manager Dashboard","my-tasks":"My Tasks",timeline:"Timeline / Project Plan",architecture:"Architecture Map",technical:"Technical Architecture",modules:"System Blueprint",requirements:"Business Requirements","module-workspace":"Module Workspace",screens:"Screen Designer",erd:"Module ERD","project-erd":"Full Project ERD",backend:"Backend Logic",tasks:"Tasks & Traceability","task-board":"Task Board",traceability:"Traceability",validation:"Validation",testing:"Testing",documentation:"Documentation",settings:"Settings",access:"Users & Access",audit:"Audit Log",references:"Reference Images"};
   $("#pageTitle").textContent=titles[state.view]||"Design Studio"; $("#breadcrumb").textContent=state.moduleId?`${titles[state.view]} / ${moduleById(state.moduleId)?.name||""}`:titles[state.view];
-  const handlers={dashboard:(currentUser()?.role==="Manager"?renderManagerDashboard:renderDashboard),"manager-dashboard":renderManagerDashboard,timeline:renderTimeline,architecture:renderArchitecture,technical:renderTechnicalArchitecture,modules:renderModules,"module-workspace":renderModuleWorkspace,requirements:renderRequirements,screens:renderScreens,erd:renderERD,"project-erd":renderProjectERD,backend:renderBackend,tasks:renderTasks,"task-board":renderTaskBoard,traceability:renderTraceability,validation:renderValidation,testing:renderTesting,documentation:renderDocumentation,settings:renderSettings,access:renderAccess,audit:renderAudit,references:renderReferences};
+  const handlers={dashboard:(currentUser()?.role==="Manager"?renderManagerDashboard:renderDashboard),"manager-dashboard":renderManagerDashboard,"my-tasks":renderMyTasks,timeline:renderTimeline,architecture:renderArchitecture,technical:renderTechnicalArchitecture,modules:renderModules,"module-workspace":renderModuleWorkspace,requirements:renderRequirements,screens:renderScreens,erd:renderERD,"project-erd":renderProjectERD,backend:renderBackend,tasks:renderTasks,"task-board":renderTaskBoard,traceability:renderTraceability,validation:renderValidation,testing:renderTesting,documentation:renderDocumentation,settings:renderSettings,access:renderAccess,audit:renderAudit,references:renderReferences};
   (handlers[state.view]||renderDashboard)(); addModulePhaseNav(); addQuickNavCarousel();
   const top=$(".top-actions"); if(top){ top.querySelector(".user-pill")?.remove(); const b=top.querySelector(".auth-btn-global"); if(b){ b.textContent="↪ Sign out"; b.style.display="inline-flex"; } top.querySelector(".status-pill")?.insertAdjacentHTML("afterend",`<span class="user-pill">👤 ${esc(currentUser().displayName||currentUser().username)} · ${esc(currentUser().role)}</span>`); }
   bindActions();
+  const backBtn=document.querySelector('.back-btn'); if(backBtn) backBtn.disabled=!(state.viewHistory&&state.viewHistory.length);
+  try{ const isManager=currentUser()?.role==='Manager'; document.querySelectorAll('[data-v12-non-manager]').forEach(e=>e.style.display=isManager?'none':''); }catch(_){}
 }
 
 document.addEventListener("DOMContentLoaded",async()=>{
