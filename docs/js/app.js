@@ -689,25 +689,20 @@ function renderScreens(){
 
   const toolbarAction=(action,label,cls="")=>`<button class="btn ${cls}" data-screen-action="${action}">${label}</button>`;
 
-  const canvasComponents = components.map((c,i)=>{
+  const renderCanvasComponent = (c, depth=0) => {
     const isSel=c.id===selected?.id;
-    return `<div class="screen-component ${isSel?"selected":""} width-${String(c.width||"Half").toLowerCase()}" data-component-id="${c.id}" draggable="true">
-      <div class="component-drag">⋮⋮</div>
-      <div class="component-preview">
-        ${renderComponentPreview(c)}
-      </div>
-      <div class="component-inline-meta">
-        <span>${esc(c.label||c.type)}</span>
-        ${c.required?'<b class="req-star">*</b>':""}
-        ${c.entityField?`<small>↔ ${esc(c.entityField)}</small>`:""}
-      </div>
-      <div class="component-actions">
-        <button data-component-edit="${c.id}" title="Edit">✎</button>
-        <button data-component-duplicate="${c.id}" title="Duplicate">⧉</button>
-        <button data-component-delete="${c.id}" title="Delete">×</button>
-      </div>
+    const children = components.filter(x=>x.parentRegionId===c.id);
+    const inner = c.type==='region'
+      ? `<div class="region-canvas-drop" data-region-drop="${c.id}">${children.map(x=>renderCanvasComponent(x,depth+1)).join('') || '<span>Drop components here</span>'}</div>`
+      : renderComponentPreview(c);
+    return `<div class="screen-component ${isSel?'selected':''} width-${String(c.width||"Half").toLowerCase()} ${c.type==='region'?'screen-region':''}" data-component-id="${c.id}" draggable="true">
+      <div class="component-drag" title="Drag">⋮⋮</div>
+      <div class="component-preview">${inner}</div>
+      <div class="component-inline-meta"><span>${esc(c.label||c.type)}</span>${c.required?'<b class="req-star">*</b>':""}${c.entityField?`<small>↔ ${esc(c.entityField)}</small>`:""}${c.parentRegionId?`<small>▣ ${esc(components.find(x=>x.id===c.parentRegionId)?.label||'Region')}</small>`:''}</div>
+      <div class="component-actions"><button data-component-edit="${c.id}" title="Edit">✎</button><button data-component-duplicate="${c.id}" title="Duplicate">⧉</button><button data-component-delete="${c.id}" title="Delete">×</button></div>
     </div>`;
-  }).join("");
+  };
+  const canvasComponents = components.filter(c=>!c.parentRegionId).map(c=>renderCanvasComponent(c)).join("");
 
   const properties = selected ? renderComponentProperties(selected, active, module) : `
     <div class="property-empty">
@@ -885,7 +880,8 @@ function renderComponentProperties(c, screen, module){
     <label>Label<input data-prop="label" value="${esc(c.label||"")}"></label>
     <label>Helper text<textarea data-prop="helperText" rows="2">${esc(c.helperText||"")}</textarea></label>
     <label>Placeholder<input data-prop="placeholder" value="${esc(c.placeholder||"")}"></label>
-    <div class="prop-two"><label>Width<select data-prop="width"><option value="Full">Full</option><option value="Half" ${c.width==='Half'?'selected':''}>Half</option><option value="Third" ${c.width==='Third'?'selected':''}>Third</option></select></label><label>Required<select data-prop="required"><option value="false" ${!c.required?'selected':''}>No</option><option value="true" ${c.required?'selected':''}>Yes</option></select></label></div></div>
+    <div class="prop-two"><label>Width<select data-prop="width"><option value="Full">Full</option><option value="Half" ${c.width==='Half'?'selected':''}>Half</option><option value="Third" ${c.width==='Third'?'selected':''}>Third</option></select></label><label>Required<select data-prop="required"><option value="false" ${!c.required?'selected':''}>No</option><option value="true" ${c.required?'selected':''}>Yes</option></select></label></div>
+    <label>Place inside region<select data-prop="parentRegionId"><option value="">Canvas / no region</option>${(screen.components||[]).filter(r=>r.type==='region'&&r.id!==c.id).map(r=>`<option value="${esc(r.id)}" ${c.parentRegionId===r.id?'selected':''}>${esc(r.label||'Region')}</option>`).join('')}</select></label></div>
   <div class="prop-section"><div class="prop-section-title">DATA SOURCE / MAPPING</div>
     <div class="prop-source-note">Record exactly where this field comes from. Use DB fields for direct mappings and Calculation / Rule for derived values.</div>
     <label>Database / Schema<input data-prop="dbSchema" value="${esc(c.dbSchema||"")}" placeholder="HR or HR_SCHEMA"></label>
@@ -946,6 +942,18 @@ function bindScreenDesigner(active){
   bindPropertyTabs();
 }
 
+function syncScreenHierarchyFromDOM(){
+  const s=project.screens.find(x=>x.id===state.screenId); if(!s)return;
+  const byId=Object.fromEntries((s.components||[]).map(c=>[c.id,c]));
+  $$('.screen-component[data-component-id]').forEach(el=>{
+    const c=byId[el.dataset.componentId]; if(!c)return;
+    const region=el.parentElement?.closest('.region-canvas-drop');
+    c.parentRegionId=region?.dataset.regionDrop||'';
+  });
+  const ids=$$('.screen-component[data-component-id]').map(x=>x.dataset.componentId);
+  s.components.sort((a,b)=>ids.indexOf(a.id)-ids.indexOf(b.id));
+}
+
 function bindTouchScreenReorder(){
   const items=$$('.screen-component[data-component-id]');
   let drag=null;
@@ -961,7 +969,10 @@ function bindTouchScreenReorder(){
       const dx=e.clientX-drag.startX,dy=e.clientY-drag.startY;
       if(Math.hypot(dx,dy)<7)return;
       drag.moved=true;
-      const target=document.elementFromPoint(e.clientX,e.clientY)?.closest('.screen-component[data-component-id]');
+      const hit=document.elementFromPoint(e.clientX,e.clientY);
+      const region=hit?.closest('.region-canvas-drop');
+      const target=hit?.closest('.screen-component[data-component-id]');
+      if(region && !target){ region.appendChild(el); return; }
       if(target && target!==el){
         const r=target.getBoundingClientRect();
         const after=e.clientY>r.top+r.height/2;
@@ -976,8 +987,7 @@ function bindTouchScreenReorder(){
       if(moved){
         const s=project.screens.find(x=>x.id===state.screenId);
         if(s){
-          const ids=$$('.screen-component[data-component-id]').map(x=>x.dataset.componentId);
-          s.components.sort((a,b)=>ids.indexOf(a.id)-ids.indexOf(b.id));
+          syncScreenHierarchyFromDOM();
           saveProject(false);
           showToast('Screen item reordered');
         }
@@ -997,6 +1007,22 @@ function bindPaletteDrag(){
     art.addEventListener('dragover',e=>e.preventDefault());
     art.addEventListener('drop',e=>{const type=e.dataTransfer.getData('text/plain'); if(type && !e.target.closest('.screen-component')){addScreenComponent(type);}});
   }
+  $$('[data-region-drop]').forEach(region=>{
+    region.addEventListener('dragover',e=>{e.preventDefault();region.classList.add('region-drop-active');});
+    region.addEventListener('dragleave',()=>region.classList.remove('region-drop-active'));
+    region.addEventListener('drop',e=>{
+      e.preventDefault(); e.stopPropagation(); region.classList.remove('region-drop-active');
+      const type=e.dataTransfer.getData('text/plain');
+      if(type){ const s=project.screens.find(x=>x.id===state.screenId); if(!s)return; const selectedRegion=s.components.find(c=>c.id===region.dataset.regionDrop); if(selectedRegion){ addScreenComponent(type); const added=s.components[s.components.length-1]; added.parentRegionId=selectedRegion.id; saveProject(false); renderScreens(); } }
+    });
+  });
+  $$('.screen-component[draggable="true"]').forEach(el=>{
+    el.addEventListener('dragover',e=>e.preventDefault());
+    el.addEventListener('drop',e=>{
+      const region=el.dataset.componentId && el.querySelector('[data-region-drop]');
+      if(region){ e.preventDefault(); e.stopPropagation(); const from=e.dataTransfer.getData('text/plain'); if(from && from!==el.dataset.componentId){ const s=project.screens.find(x=>x.id===state.screenId); const c=s?.components?.find(x=>x.id===from); if(c){c.parentRegionId=el.dataset.componentId;saveProject(false);renderScreens();}}}
+    });
+  });
 }
 
 function bindPropertyTabs(){
@@ -1016,7 +1042,8 @@ function addScreenComponent(type){
   const id=uid("cmp");
   const names={text:"Text Field",number:"Number Field",date:"Date",datetime:"Date & Time",select:"Select",multiselect:"Multi Select",checkbox:"Checkbox",radio:"Radio Group",textarea:"Notes",currency:"Amount",file:"Attachment",table:"Records",button:"Save",divider:"Section Divider",heading:"Section",badge:"Status",tabs:"Details",display:"Display Only",hidden:"Hidden",password:"Password",email:"Email",phone:"Phone",url:"URL",search:"Search",autocomplete:"Autocomplete",popup_lov:"Popup LOV",shuttle:"Shuttle",switch:"Switch",richtext:"Rich Text",image:"Image",icon:"Icon",region:"Region",report:"Interactive Report",grid:"Interactive Grid",masterdetail:"Master Detail",chart:"Chart",list:"List",breadcrumb:"Breadcrumb"};
   s.components=s.components||[];
-  s.components.push({id,type,label:names[type]||"Component",required:false,entityField:"",apiField:"",comment:"",
+  const selectedRegion = s.components.find(x=>x.id===state.selectedComponentId && x.type==='region');
+  s.components.push({id,type,label:names[type]||"Component",required:false,entityField:"",apiField:"",comment:"",parentRegionId:(selectedRegion && type!=='region')?selectedRegion.id:"",
     sourceType:"DB",dbSchema:"",dbTable:"",dbColumn:"",calculationRule:"",validationRule:"",createdBy:currentUser()?.id||null,createdAt:new Date().toISOString()});
   state.selectedComponentId=id;
   saveProject();
@@ -1066,6 +1093,7 @@ function deleteScreenComponent(id){
   const s=project.screens.find(x=>x.id===state.screenId);
   if(!s)return;
   s.components=(s.components||[]).filter(c=>c.id!==id);
+  s.components.forEach(c=>{if(c.parentRegionId===id)c.parentRegionId="";});
   state.selectedComponentId=null;
   saveProject();renderScreens();
 }
@@ -1804,7 +1832,7 @@ function render(){
   $("#pageTitle").textContent=titles[state.view]||"Design Studio"; $("#breadcrumb").textContent=state.moduleId?`${titles[state.view]} / ${moduleById(state.moduleId)?.name||""}`:titles[state.view];
   const handlers={dashboard:renderDashboard,timeline:renderTimeline,architecture:renderArchitecture,technical:renderTechnicalArchitecture,modules:renderModules,"module-workspace":renderModuleWorkspace,requirements:renderRequirements,screens:renderScreens,erd:renderERD,"project-erd":renderProjectERD,backend:renderBackend,tasks:renderTasks,"task-board":renderTaskBoard,traceability:renderTraceability,validation:renderValidation,testing:renderTesting,documentation:renderDocumentation,settings:renderSettings,access:renderAccess,audit:renderAudit,references:renderReferences};
   (handlers[state.view]||renderDashboard)(); addModulePhaseNav(); addQuickNavCarousel(); bindActions();
-  const top=$('.top-actions'); if(top){top.querySelector('.status-pill')?.insertAdjacentHTML('afterend',`<span class="user-pill">👤 ${esc(currentUser().displayName)} · ${esc(currentUser().role)}</span>`);}
+  const top=$('.top-actions'); if(top){top.querySelector('.status-pill')?.insertAdjacentHTML('afterend',`<span class="user-pill">👤 ${esc(currentUser().displayName||currentUser().username)} · ${esc(currentUser().role)}</span><button class="btn secondary auth-btn" data-action="logout">↪ Sign out</button>`);}
 }
 
 document.addEventListener("DOMContentLoaded",async()=>{

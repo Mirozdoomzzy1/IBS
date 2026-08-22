@@ -577,3 +577,37 @@ body.erd-dragging{cursor:grabbing!important;user-select:none!important}
 .fake-richtext hr{border:0;border-top:1px solid #e1e6ed;margin:6px 0}.fake-image{height:52px;display:grid;place-items:center}.fake-icon{text-align:center;font-size:24px;color:#315ee8}.fake-region{display:flex;flex-direction:column;gap:5px}.fake-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;padding:0;overflow:hidden}.fake-grid span{padding:5px;background:#fff}.fake-masterdetail{display:grid;grid-template-columns:1fr 1fr;gap:5px}.fake-masterdetail b{grid-column:1/-1}.fake-chart{height:55px;display:grid;place-items:center}.fake-list{display:flex;flex-direction:column;gap:4px}.fake-breadcrumb{background:#fff;border:0;padding:5px;color:#718096}
 .nav-section{margin-top:14px;margin-bottom:5px;padding:0 10px;font-size:8px;letter-spacing:.12em;font-weight:900;color:#7e91a9}.nav-section:first-child{margin-top:2px}
 @media(max-width:700px){.palette-item{min-width:118px}.screen-component{min-height:46px}.screen-component .component-drag{font-size:16px;padding:4px}.screen-workspace{overflow-x:auto}.screen-artboard{min-width:390px}}
+
+/* ===== Screen Designer UX upgrade ===== */
+.screen-designer-shell{background:#eef2f7}
+.component-palette{min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.component-palette .palette-groups{min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
+.screen-region{background:linear-gradient(180deg,#f8fbff,#fff);border:1px solid #cbd8ee!important}
+.screen-region .component-preview{min-height:0}
+.region-canvas-drop{min-height:82px;border:1px dashed #aebfdd;border-radius:8px;background:#f5f8fd;padding:10px;display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:8px;align-items:start}
+.region-canvas-drop>span{grid-column:1/-1;color:#8b99ab;font-size:9px;text-align:center;padding:18px}
+.region-canvas-drop .screen-component{grid-column:span 6;margin:0}
+.region-drop-active{outline:3px solid rgba(49,94,232,.22);background:#edf3ff}
+.auth-btn{white-space:nowrap}
+@media(max-width:800px){
+  .screen-designer-shell{overflow:visible!important}
+  .screen-workspace{display:flex!important;flex-direction:column!important}
+  .component-palette{display:flex!important;position:sticky;top:0;z-index:30;width:100%!important;max-height:360px!important;height:360px!important;min-height:360px!important;overflow:hidden!important;background:#fbfcfe;box-shadow:0 5px 18px rgba(22,43,73,.10)}
+  .component-palette .screen-sidebar-title{flex:0 0 42px;position:relative;z-index:2;background:#fbfcfe}
+  .component-palette .palette-search{flex:0 0 44px;position:relative;z-index:3;background:#fbfcfe}
+  .component-palette .palette-groups{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;flex:1;min-height:0;max-height:none!important;overflow-y:auto!important;overflow-x:hidden!important;padding:8px!important;touch-action:pan-y!important}
+  .component-palette .palette-group{display:contents}
+  .component-palette .palette-group-title{display:none}
+  .component-palette .palette-item{min-height:50px!important;height:auto!important;margin:0!important;padding:7px!important;touch-action:manipulation!important;user-select:none;-webkit-tap-highlight-color:transparent}
+  .component-palette .palette-item:active{transform:scale(.98);background:#edf3ff}
+  .screen-canvas-area{min-height:560px!important}
+  .screen-canvas-scroll{min-height:430px!important}
+  .screen-artboard{width:390px!important;min-height:620px}
+  .screen-ui-body{grid-template-columns:repeat(4,1fr)!important}
+  .screen-component,.region-canvas-drop .screen-component{grid-column:span 4!important}
+  .region-canvas-drop{grid-template-columns:repeat(4,minmax(0,1fr));padding:8px;gap:7px}
+  .region-canvas-drop .screen-component{width:100%}
+  .screen-top-actions{overflow-x:auto!important;white-space:nowrap}
+  .screen-top-actions .btn{flex:0 0 auto}
+  .auth-btn{display:inline-flex!important}
+}
