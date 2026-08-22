@@ -19,31 +19,33 @@ const state = {
 };
 
 const navSections = [
-  {title:"WORKSPACE", items:[
-    ["dashboard","⌂","Dashboard"],
-    ["timeline","◷","Timeline / Plan"],
-    ["architecture","◎","Architecture Map"],
-    ["technical","⬡","Technical Architecture"],
-    ["modules","▦","System Blueprint"],
+  {title:"PHASES", items:[
     ["requirements","▤","Requirements"],
     ["screens","▣","Screen Designer"],
-    ["references","▧","Reference Images"],
+    ["backend","⚙","Backend Logic"],
     ["erd","◇","Module ERD"],
     ["project-erd","◈","Full Project ERD"],
-    ["backend","⚙","Backend Logic"],
+    ["testing","🧪","Testing"],
+    ["validation","✓","Validation"]
+  ]},
+  {title:"PROJECT MANAGEMENT", items:[
+    ["dashboard","⌂","Dashboard"],
+    ["modules","▦","System Blueprint"],
+    ["timeline","◷","Timeline / Plan"],
     ["tasks","☷","Tasks & Traceability"],
     ["task-board","▥","Task Board"],
     ["traceability","↗","Traceability"],
-    ["validation","✓","Validation"],
-    ["testing","🧪","Testing"]
+    ["architecture","◎","Architecture Map"],
+    ["technical","⬡","Technical Architecture"]
   ]},
-  {title:"SECURITY", items:[
+  {title:"PROJECT OWNER", items:[
+    ["references","▧","Reference Images"],
+    ["documentation","▥","Documentation"],
+    ["settings","⚙","Project Settings"]
+  ]},
+  {title:"ADMINISTRATION", items:[
     ["access","🔐","Users & Access"],
     ["audit","◷","Audit Log"]
-  ]},
-  {title:"OUTPUT", items:[
-    ["documentation","▥","Documentation"],
-    ["settings","⚙","Settings"]
   ]}
 ];
 
@@ -661,7 +663,28 @@ function renderScreens(){
     ["divider","Divider","—","Visual section divider"],
     ["heading","Section Heading","H","Visual grouping"],
     ["badge","Status Badge","●","Status / state indicator"],
-    ["tabs","Tabs","▥","Group related screen areas"]
+    ["tabs","Tabs","▥","Group related screen areas"],
+    ["display","Display Only","◉","Read-only display value"],
+    ["hidden","Hidden","H","Hidden page item"],
+    ["password","Password","••","Password input"],
+    ["email","Email","@","Email address"],
+    ["phone","Phone","☎","Telephone number"],
+    ["url","URL","↗","Web address"],
+    ["search","Search","⌕","Search field"],
+    ["autocomplete","Autocomplete","⌄","Autocomplete / LOV"],
+    ["popup_lov","Popup LOV","▣","Popup list of values"],
+    ["shuttle","Shuttle","↔","Move values between lists"],
+    ["switch","Switch","◐","On / off switch"],
+    ["richtext","Rich Text","✎","Rich text editor"],
+    ["image","Image","▧","Image display"],
+    ["icon","Icon","◆","Icon / visual indicator"],
+    ["region","Region","□","Container / region"],
+    ["report","Interactive Report","▤","Report region"],
+    ["grid","Interactive Grid","▦","Editable grid"],
+    ["masterdetail","Master Detail","▥","Master-detail region"],
+    ["chart","Chart","◒","Chart / visualization"],
+    ["list","List","☷","Navigation or value list"],
+    ["breadcrumb","Breadcrumb","›","Breadcrumb navigation"]
   ];
 
   const toolbarAction=(action,label,cls="")=>`<button class="btn ${cls}" data-screen-action="${action}">${label}</button>`;
@@ -736,10 +759,13 @@ function renderScreens(){
           <div class="palette-search"><span>⌕</span><input id="componentSearch" placeholder="Search components..."></div>
           <div class="palette-groups">
             <div class="palette-group"><div class="palette-group-title">INPUTS</div>
-              ${componentTypes.slice(0,11).map(t=>`<button class="palette-item" data-add-component="${t[0]}" title="${esc(t[3])}"><i>${t[2]}</i><span>${t[1]}</span></button>`).join("")}
+              ${componentTypes.slice(0,11).map(t=>`<button class="palette-item" draggable="true" data-add-component="${t[0]}" title="${esc(t[3])}"><i>${t[2]}</i><span>${t[1]}</span></button>`).join("")}
+            </div>
+            <div class="palette-group"><div class="palette-group-title">LOV / APEX ITEMS</div>
+              ${componentTypes.slice(11,23).map(t=>`<button class="palette-item" draggable="true" data-add-component="${t[0]}" title="${esc(t[3])}"><i>${t[2]}</i><span>${t[1]}</span></button>`).join("")}
             </div>
             <div class="palette-group"><div class="palette-group-title">LAYOUT & DISPLAY</div>
-              ${componentTypes.slice(11).map(t=>`<button class="palette-item" data-add-component="${t[0]}" title="${esc(t[3])}"><i>${t[2]}</i><span>${t[1]}</span></button>`).join("")}
+              ${componentTypes.slice(23).map(t=>`<button class="palette-item" draggable="true" data-add-component="${t[0]}" title="${esc(t[3])}"><i>${t[2]}</i><span>${t[1]}</span></button>`).join("")}
             </div>
           </div>
         </aside>
@@ -827,6 +853,27 @@ function renderComponentPreview(c){
     case "heading": return `<h3 class="fake-heading">${l}</h3>`;
     case "badge": return `<label>${l}</label><span class="fake-badge">${esc(c.status||"Active")}</span>`;
     case "tabs": return `<div class="fake-tabs"><span class="active">Overview</span><span>Details</span><span>History</span></div>`;
+    case "display": return `<label>${l}</label><div class="fake-display">${esc(c.defaultValue||"Read-only value")}</div>`;
+    case "hidden": return `<div class="fake-hidden">Hidden item · ${l}</div>`;
+    case "password": return `<label>${l}</label><input type="password" value="••••••••" readonly>`;
+    case "email": return `<label>${l}</label><input type="email" placeholder="name@example.com">`;
+    case "phone": return `<label>${l}</label><input type="tel" placeholder="+20 10 0000 0000">`;
+    case "url": return `<label>${l}</label><input type="url" placeholder="https://example.com">`;
+    case "search": return `<label>${l}</label><div class="fake-input">⌕ Search...</div>`;
+    case "autocomplete": return `<label>${l}</label><div class="fake-input">Start typing... <span>⌄</span></div>`;
+    case "popup_lov": return `<label>${l}</label><div class="fake-input">Select value <span>▣</span></div>`;
+    case "shuttle": return `<label>${l}</label><div class="fake-shuttle"><span>Available<br>Item A<br>Item B</span><b>↔</b><span>Selected<br>Item C</span></div>`;
+    case "switch": return `<label>${l}</label><div class="fake-switch"><span class="on"></span> On</div>`;
+    case "richtext": return `<label>${l}</label><div class="fake-richtext"><b>B</b> <i>I</i> <u>U</u><hr>Rich text content...</div>`;
+    case "image": return `<label>${l}</label><div class="fake-image">▧ Image</div>`;
+    case "icon": return `<label>${l}</label><div class="fake-icon">◆</div>`;
+    case "region": return `<div class="fake-region"><b>${l}</b><span>Region container</span></div>`;
+    case "report": return `<div class="fake-table-title">${l}</div><div class="fake-table">ID&nbsp;&nbsp; Name&nbsp;&nbsp; Status<br>001&nbsp;&nbsp; Sample&nbsp;&nbsp; Active</div>`;
+    case "grid": return `<div class="fake-grid"><span>A</span><span>B</span><span>C</span><span>1</span><span>2</span><span>3</span></div>`;
+    case "masterdetail": return `<div class="fake-masterdetail"><b>${l}</b><span>Master</span><span>Detail</span></div>`;
+    case "chart": return `<div class="fake-chart">◒ ${l}</div>`;
+    case "list": return `<div class="fake-list"><b>${l}</b><span>Item 1</span><span>Item 2</span><span>Item 3</span></div>`;
+    case "breadcrumb": return `<div class="fake-breadcrumb">Home › Module › ${l}</div>`;
     default: return `<label>${l}${c.required?'<em>*</em>':""}</label><input type="${c.type==="number"?"number":"text"}" placeholder="${ph}">`;
   }
 }
@@ -897,6 +944,59 @@ function bindScreenDesigner(active){
   bindPropertyTabs();
 }
 
+function bindTouchScreenReorder(){
+  const items=$$('.screen-component[data-component-id]');
+  let drag=null;
+  items.forEach(el=>{
+    el.addEventListener('pointerdown',e=>{
+      if(e.target.closest('button,input,select,textarea')) return;
+      drag={el,startX:e.clientX,startY:e.clientY,moved:false};
+      el.classList.add('pointer-dragging');
+      try{el.setPointerCapture(e.pointerId);}catch(_){}
+    });
+    el.addEventListener('pointermove',e=>{
+      if(!drag||drag.el!==el)return;
+      const dx=e.clientX-drag.startX,dy=e.clientY-drag.startY;
+      if(Math.hypot(dx,dy)<7)return;
+      drag.moved=true;
+      const target=document.elementFromPoint(e.clientX,e.clientY)?.closest('.screen-component[data-component-id]');
+      if(target && target!==el){
+        const r=target.getBoundingClientRect();
+        const after=e.clientY>r.top+r.height/2;
+        const parent=target.parentElement;
+        if(after) parent.insertBefore(el,target.nextSibling); else parent.insertBefore(el,target);
+      }
+    });
+    el.addEventListener('pointerup',e=>{
+      if(!drag||drag.el!==el)return;
+      el.classList.remove('pointer-dragging');
+      const moved=drag.moved; drag=null;
+      if(moved){
+        const s=project.screens.find(x=>x.id===state.screenId);
+        if(s){
+          const ids=$$('.screen-component[data-component-id]').map(x=>x.dataset.componentId);
+          s.components.sort((a,b)=>ids.indexOf(a.id)-ids.indexOf(b.id));
+          saveProject(false);
+          showToast('Screen item reordered');
+        }
+      }
+    });
+    el.addEventListener('pointercancel',()=>{if(drag?.el===el){el.classList.remove('pointer-dragging');drag=null;renderScreens();}});
+  });
+}
+
+function bindPaletteDrag(){
+  $$('.palette-item[draggable="true"]').forEach(el=>{
+    el.addEventListener('dragstart',e=>{e.dataTransfer.setData('text/plain',el.dataset.addComponent);el.classList.add('dragging')});
+    el.addEventListener('dragend',()=>el.classList.remove('dragging'));
+  });
+  const art=$('#screenArtboard');
+  if(art){
+    art.addEventListener('dragover',e=>e.preventDefault());
+    art.addEventListener('drop',e=>{const type=e.dataTransfer.getData('text/plain'); if(type && !e.target.closest('.screen-component')){addScreenComponent(type);}});
+  }
+}
+
 function bindPropertyTabs(){
   $$('[data-prop-tab]').forEach(btn=>btn.onclick=()=>{
     $$('[data-prop-tab]').forEach(x=>x.classList.remove('active'));btn.classList.add('active');
@@ -912,7 +1012,7 @@ function addScreenComponent(type){
   const s=project.screens.find(x=>x.id===state.screenId);
   if(!s)return;
   const id=uid("cmp");
-  const names={text:"Text Field",number:"Number Field",date:"Date",datetime:"Date & Time",select:"Select",multiselect:"Multi Select",checkbox:"Checkbox",radio:"Radio Group",textarea:"Notes",currency:"Amount",file:"Attachment",table:"Records",button:"Save",divider:"Section Divider",heading:"Section",badge:"Status",tabs:"Details"};
+  const names={text:"Text Field",number:"Number Field",date:"Date",datetime:"Date & Time",select:"Select",multiselect:"Multi Select",checkbox:"Checkbox",radio:"Radio Group",textarea:"Notes",currency:"Amount",file:"Attachment",table:"Records",button:"Save",divider:"Section Divider",heading:"Section",badge:"Status",tabs:"Details",display:"Display Only",hidden:"Hidden",password:"Password",email:"Email",phone:"Phone",url:"URL",search:"Search",autocomplete:"Autocomplete",popup_lov:"Popup LOV",shuttle:"Shuttle",switch:"Switch",richtext:"Rich Text",image:"Image",icon:"Icon",region:"Region",report:"Interactive Report",grid:"Interactive Grid",masterdetail:"Master Detail",chart:"Chart",list:"List",breadcrumb:"Breadcrumb"};
   s.components=s.components||[];
   s.components.push({id,type,label:names[type]||"Component",required:false,entityField:"",apiField:"",comment:"",
     sourceType:"DB",dbSchema:"",dbTable:"",dbColumn:"",calculationRule:"",validationRule:"",createdBy:currentUser()?.id||null,createdAt:new Date().toISOString()});
