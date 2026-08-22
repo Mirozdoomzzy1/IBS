@@ -1379,11 +1379,46 @@ async function renderAudit(){
     paint(window.__auditRows);
   }catch(e){$('#auditRows').innerHTML=`<div class="empty"><strong>Audit history unavailable</strong><div class="muted small-text">${esc(e.message||e)}</div></div>`;}
 }
-function renderDocumentation(){
-  $("#content").innerHTML=`<div class="grid two"><div class="card"><div class="card-title"><div><h2>Project Documentation</h2><span class="muted small-text">Generate a readable design summary.</span></div><button class="btn primary" data-action="download-doc">Download HTML</button></div>
-  <div class="property-list">${prop("Project",project.project.name)}${prop("Modules",project.modules.length)}${prop("Requirements",project.requirements.length)}${prop("Screens",project.screens.length)}${prop("Entities",project.entities.length)}${prop("Relationships",project.relations.length)}${prop("APIs",project.apis.length)}${prop("Logic workflows",project.logic.length)}</div></div>
-  <div class="card"><h2>Suggested delivery package</h2><p class="muted small-text">Use the exported JSON as the single design source of truth. Generate requirement documents, UI specifications, ERD/DDL specifications and API contracts from it.</p><div class="module-meta"><span class="tag blue">Requirements</span><span class="tag green">UI specs</span><span class="tag orange">Oracle ERD</span><span class="tag">REST API</span><span class="tag">Business logic</span></div></div></div>`;
+function documentationData(){
+  const modules=project.modules||[];
+  const rows=[];
+  (project.requirements||[]).forEach(r=>rows.push({type:'Requirement',id:r.id,name:r.title||r.name||r.id,moduleId:r.moduleId,detail:r.description||r.actor||''}));
+  (project.screens||[]).forEach(x=>rows.push({type:'Screen',id:x.id,name:x.name||x.id,moduleId:x.moduleId,detail:x.description||`${(x.components||[]).length} components`}));
+  (project.entities||[]).forEach(x=>rows.push({type:'ERD Entity',id:x.id,name:x.name||x.id,moduleId:x.moduleId,detail:`${(x.fields||[]).length} fields`}));
+  (project.apis||[]).forEach(x=>rows.push({type:'API',id:x.id,name:`${x.method||''} ${x.path||x.name||x.id}`.trim(),moduleId:x.moduleId,detail:x.permission||''}));
+  (project.logic||[]).forEach(x=>rows.push({type:'Backend Logic',id:x.id,name:x.name||x.id,moduleId:x.moduleId,detail:`${(x.steps||[]).length} steps`}));
+  (project.tests||[]).forEach(x=>rows.push({type:'Test',id:x.id,name:x.name||x.title||x.id,moduleId:x.moduleId,detail:x.status||''}));
+  return {modules,rows};
 }
+function buildDocumentationHtml(){
+  const d=documentationData();
+  const moduleName=id=>moduleById(id)?.name||'—';
+  const sections=d.modules.map(m=>{
+    const items=d.rows.filter(x=>x.moduleId===m.id);
+    return `<div class="module"><h2>${esc(m.name)}</h2><p>${esc(m.description||'')}</p><table><tr><th>Type</th><th>ID</th><th>Name</th><th>Details</th></tr>${items.map(x=>`<tr><td>${esc(x.type)}</td><td>${esc(x.id)}</td><td>${esc(x.name)}</td><td>${esc(x.detail)}</td></tr>`).join('')||'<tr><td colspan="4">No documented artifacts.</td></tr>'}</table></div>`;
+  }).join('');
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(project.project.name||'Design Documentation')}</title><style>body{font-family:Arial,sans-serif;color:#172238;padding:35px;line-height:1.45}h1{color:#315ee8}h2{margin-top:28px;border-bottom:1px solid #ddd;padding-bottom:6px}.module{margin:30px 0}table{border-collapse:collapse;width:100%;font-size:12px}td,th{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f3f5f8}</style></head><body><h1>${esc(project.project.name||'Design Studio')}</h1><p>${esc(project.project.description||'')}</p><h2>Project Summary</h2><p>Modules: ${d.modules.length} · Requirements: ${(project.requirements||[]).length} · Screens: ${(project.screens||[]).length} · ERD entities: ${(project.entities||[]).length} · APIs: ${(project.apis||[]).length} · Backend workflows: ${(project.logic||[]).length} · Tests: ${(project.tests||[]).length}</p>${sections}</body></html>`;
+}
+function renderDocumentation(){
+  const d=documentationData();
+  const moduleOptions=`<option value="ALL">All Modules</option>`+d.modules.map(m=>`<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('');
+  const typeOptions=`<option value="ALL">All Types</option>`+['Requirement','Screen','ERD Entity','API','Backend Logic','Test'].map(x=>`<option>${x}</option>`).join('');
+  const summary=`<div class="documentation-object-grid">${[
+    ['Modules',d.modules.length,'▦'],['Requirements',(project.requirements||[]).length,'✓'],['Screens',(project.screens||[]).length,'▣'],['ERD Entities',(project.entities||[]).length,'◇'],['APIs',(project.apis||[]).length,'↗'],['Backend Logic',(project.logic||[]).length,'⚙'],['Tests',(project.tests||[]).length,'☑'],['Timeline Tasks',(project.timeline||[]).length,'◷']
+  ].map(x=>`<div class="documentation-object"><h4>${x[2]} ${x[0]}</h4><p style="font-size:18px;font-weight:900;color:#24364f">${x[1]}</p></div>`).join('')}</div>`;
+  const cards=d.rows.slice(0,12).map(x=>`<div class="documentation-object" data-doc-object data-module="${esc(x.moduleId||'')}" data-type="${esc(x.type)}"><h4>${esc(x.name)}</h4><p>${esc(x.detail||'No description')}</p><div class="documentation-meta"><span class="tag blue">${esc(x.type)}</span><span class="tag">${esc(moduleById(x.moduleId)?.name||'Unassigned')}</span><span class="tag">${esc(x.id)}</span></div></div>`).join('');
+  const preview=buildDocumentationHtml().replace(/^<!doctype html>/i,'').replace(/<head>[\s\S]*?<\/head>/i,'').replace(/<body>/i,'').replace(/<\/body>[\s\S]*<\/html>/i,'');
+  $('#content').innerHTML=`<div class="documentation-shell">
+    <div class="card documentation-hero"><div><span class="eyebrow">PROJECT KNOWLEDGE BASE</span><h2>Documentation</h2><p class="muted">Build, inspect and export a living specification of the entire design. Filter artifacts by module or type, then export a standalone HTML document.</p></div><div class="documentation-actions"><button class="btn secondary" data-action="print-doc">🖨 Print</button><button class="btn secondary" data-action="copy-doc">Copy Summary</button><button class="btn primary" data-action="download-doc">Download HTML</button></div></div>
+    ${summary}
+    <div class="card"><div class="documentation-filterbar"><input id="docSearch" placeholder="Search documentation..."/><select id="docModuleFilter">${moduleOptions}</select><select id="docTypeFilter">${typeOptions}</select></div></div>
+    <div class="card"><div class="documentation-tabs"><button class="documentation-tab active" data-doc-tab="artifacts">Artifacts</button><button class="documentation-tab" data-doc-tab="preview">Document Preview</button><button class="documentation-tab" data-doc-tab="guide">How to use</button></div><div id="documentationPanel" style="margin-top:12px"><div class="documentation-section" id="docArtifacts"><div class="documentation-object-grid" id="docObjectGrid">${cards||'<div class="documentation-empty">No artifacts yet.</div>'}</div></div><div class="documentation-section" id="docPreview" style="display:none"><div class="documentation-preview">${preview}</div></div><div class="documentation-section" id="docGuide" style="display:none"><div class="card" style="background:#f8fbff"><h3>What this page documents</h3><p class="muted small-text">Requirements, screens, ERD entities, APIs, backend workflows, testing, modules and project tasks. Use the filters to find an artifact quickly. Use Document Preview to inspect the export before downloading it.</p><ol class="muted small-text"><li>Choose a module.</li><li>Filter by artifact type or search by name/ID.</li><li>Review the generated document.</li><li>Download HTML or print it to PDF from your browser.</li></ol></div></div></div></div>
+  </div>`;
+  const filterDocs=()=>{const q=String($('#docSearch')?.value||'').toLowerCase(),m=$('#docModuleFilter')?.value||'ALL',t=$('#docTypeFilter')?.value||'ALL'; $$('#docObjectGrid [data-doc-object]').forEach(el=>{const text=el.textContent.toLowerCase(); const okQ=!q||text.includes(q),okM=m==='ALL'||el.dataset.module===m,okT=t==='ALL'||el.dataset.type===t;el.style.display=okQ&&okM&&okT?'':'none';});};
+  $('#docSearch').oninput=filterDocs; $('#docModuleFilter').onchange=filterDocs; $('#docTypeFilter').onchange=filterDocs;
+  $$('[data-doc-tab]').forEach(b=>b.onclick=()=>{ $$('[data-doc-tab]').forEach(x=>x.classList.toggle('active',x===b)); ['artifacts','preview','guide'].forEach(id=>{const el=$('#doc'+id[0].toUpperCase()+id.slice(1));if(el)el.style.display=id===b.dataset.docTab?'':'none';}); });
+}
+
 function renderSettings(){
   $("#content").innerHTML=`<div class="card"><div class="card-title"><div><h2>Project Settings</h2><span class="muted small-text">Local-first settings for the prototype.</span></div></div>
   <div class="settings-list">
@@ -1594,6 +1629,8 @@ function handleAction(action,id){
     case "reset-project": if(confirm("Reset the demo project?")){resetProject();location.reload()}break;
     case "run-validation": render();break;
     case "download-doc": downloadDocumentation();break;
+    case "print-doc": { const w=window.open("","_blank"); if(w){ w.document.open(); w.document.write(buildDocumentationHtml()); w.document.close(); w.focus(); setTimeout(()=>w.print(),250); } break; }
+    case "copy-doc": { const summary=`${project.project.name||'Design Studio'}\nModules: ${(project.modules||[]).length}\nRequirements: ${(project.requirements||[]).length}\nScreens: ${(project.screens||[]).length}\nERD Entities: ${(project.entities||[]).length}\nAPIs: ${(project.apis||[]).length}\nBackend Logic: ${(project.logic||[]).length}\nTests: ${(project.tests||[]).length}`; navigator.clipboard?.writeText(summary).then(()=>showToast("Documentation summary copied"),()=>showToast("Copy unavailable in this browser")); break; }
     case "export-traceability": exportTraceability();break;
   }
 }
@@ -1831,8 +1868,9 @@ function render(){
   const titles={dashboard:"Design Studio",timeline:"Timeline / Project Plan",architecture:"Architecture Map",technical:"Technical Architecture",modules:"System Blueprint",requirements:"Business Requirements","module-workspace":"Module Workspace",screens:"Screen Designer",erd:"Module ERD","project-erd":"Full Project ERD",backend:"Backend Logic",tasks:"Tasks & Traceability","task-board":"Task Board",traceability:"Traceability",validation:"Validation",testing:"Testing",documentation:"Documentation",settings:"Settings",access:"Users & Access",audit:"Audit Log",references:"Reference Images"};
   $("#pageTitle").textContent=titles[state.view]||"Design Studio"; $("#breadcrumb").textContent=state.moduleId?`${titles[state.view]} / ${moduleById(state.moduleId)?.name||""}`:titles[state.view];
   const handlers={dashboard:renderDashboard,timeline:renderTimeline,architecture:renderArchitecture,technical:renderTechnicalArchitecture,modules:renderModules,"module-workspace":renderModuleWorkspace,requirements:renderRequirements,screens:renderScreens,erd:renderERD,"project-erd":renderProjectERD,backend:renderBackend,tasks:renderTasks,"task-board":renderTaskBoard,traceability:renderTraceability,validation:renderValidation,testing:renderTesting,documentation:renderDocumentation,settings:renderSettings,access:renderAccess,audit:renderAudit,references:renderReferences};
-  (handlers[state.view]||renderDashboard)(); addModulePhaseNav(); addQuickNavCarousel(); bindActions();
-  const top=$('.top-actions'); if(top){top.querySelector('.status-pill')?.insertAdjacentHTML('afterend',`<span class="user-pill">👤 ${esc(currentUser().displayName||currentUser().username)} · ${esc(currentUser().role)}</span><button class="btn secondary auth-btn" data-action="logout">↪ Sign out</button>`);}
+  (handlers[state.view]||renderDashboard)(); addModulePhaseNav(); addQuickNavCarousel();
+  const top=$(".top-actions"); if(top){ top.querySelector(".user-pill")?.remove(); const b=top.querySelector(".auth-btn-global"); if(b){ b.textContent="↪ Sign out"; b.style.display="inline-flex"; } top.querySelector(".status-pill")?.insertAdjacentHTML("afterend",`<span class="user-pill">👤 ${esc(currentUser().displayName||currentUser().username)} · ${esc(currentUser().role)}</span>`); }
+  bindActions();
 }
 
 document.addEventListener("DOMContentLoaded",async()=>{
