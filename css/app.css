@@ -625,3 +625,25 @@ body.erd-dragging{cursor:grabbing!important;user-select:none!important}
 
 /* Documentation workspace */
 .documentation-shell{display:grid;gap:14px}.documentation-hero{display:flex;justify-content:space-between;gap:18px;align-items:flex-start}.documentation-actions{display:flex;gap:7px;flex-wrap:wrap}.documentation-filterbar{display:flex;gap:8px;flex-wrap:wrap}.documentation-filterbar input,.documentation-filterbar select{min-width:180px;border:1px solid var(--line);border-radius:9px;padding:9px;background:#fff}.documentation-tabs{display:flex;gap:5px;overflow:auto;border-bottom:1px solid var(--line);padding-bottom:5px}.documentation-tab{border:1px solid transparent;background:#f7f9fc;border-radius:8px;padding:8px 10px;font-size:9px;font-weight:800;color:#607087;white-space:nowrap}.documentation-tab.active{background:#edf2ff;color:#315ee8;border-color:#cbd8ff}.documentation-section{display:grid;gap:10px}.documentation-object-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.documentation-object{border:1px solid #e2e8f0;border-radius:11px;padding:11px;background:#fff}.documentation-object h4{margin:0 0 4px;font-size:11px}.documentation-object p{margin:0;color:#708096;font-size:9px;line-height:1.5}.documentation-meta{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px}.documentation-preview{min-height:280px;max-height:620px;overflow:auto;border:1px solid var(--line);border-radius:10px;background:#fff;padding:20px}.documentation-preview h1{font-size:22px}.documentation-preview h2{font-size:15px;border-bottom:1px solid #e8edf3;padding-bottom:6px;margin-top:22px}.documentation-preview table{width:100%;border-collapse:collapse;font-size:9px}.documentation-preview th,.documentation-preview td{border:1px solid #e2e7ee;padding:6px;text-align:left}.documentation-preview th{background:#f5f7fa}.documentation-empty{padding:28px;text-align:center;color:#8b98a9}@media(max-width:700px){.documentation-hero{flex-direction:column}.documentation-object-grid{grid-template-columns:1fr}.documentation-filterbar input,.documentation-filterbar select{width:100%;min-width:0}.documentation-preview{padding:13px}}
+
+/* Keep the Screen Designer component library visible on every device. */
+@media (min-width: 761px) and (max-width: 1250px){
+  .screen-workspace{grid-template-columns:170px 225px minmax(360px,1fr)!important;position:relative!important}
+  .component-palette{display:flex!important;flex-direction:column!important;min-width:0!important;min-height:0!important;overflow:hidden!important}
+  .component-palette .screen-sidebar-title{flex:0 0 42px!important}
+  .component-palette .palette-search{flex:0 0 42px!important}
+  .component-palette .palette-groups{display:block!important;flex:1 1 auto!important;min-height:0!important;max-height:none!important;overflow-y:auto!important;overflow-x:hidden!important;-webkit-overflow-scrolling:touch!important;padding:8px!important}
+  .component-palette .palette-group{display:block!important}
+  .component-palette .palette-item{width:100%!important;min-width:0!important}
+}
+@media (max-width:760px){
+  .screen-workspace{display:flex!important;flex-direction:column!important;min-height:0!important}
+  .component-palette{order:2!important;display:flex!important;flex-direction:column!important;width:100%!important;max-height:300px!important;min-height:230px!important;overflow:hidden!important;border-right:0!important;border-bottom:1px solid #dfe5ed!important;background:#fbfcfe!important}
+  .component-palette .screen-sidebar-title{display:flex!important;flex:0 0 42px!important;position:sticky!important;top:0!important;z-index:8!important;background:#fff!important}
+  .component-palette .palette-search{flex:0 0 44px!important;position:sticky!important;top:42px!important;z-index:7!important;background:#fff!important}
+  .component-palette .palette-groups{display:block!important;flex:1 1 auto!important;width:100%!important;min-height:0!important;max-height:none!important;overflow-y:auto!important;overflow-x:hidden!important;-webkit-overflow-scrolling:touch!important;padding:8px!important;box-sizing:border-box!important}
+  .component-palette .palette-group{display:block!important;margin:0 0 12px!important}
+  .component-palette .palette-group-title{display:block!important;position:sticky!important;top:0!important;z-index:4!important;background:#fbfcfe!important;padding:6px 3px!important;margin:0!important}
+  .component-palette .palette-item{display:flex!important;width:100%!important;min-width:0!important;min-height:46px!important;margin:5px 0!important;padding:9px!important;touch-action:manipulation!important}
+  .screen-canvas-area{order:3!important}.screen-properties{order:4!important}
+}
