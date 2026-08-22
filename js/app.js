@@ -1819,7 +1819,6 @@ function securityDefaults(){
     });
   });
 }
-window.currentUser=()=>currentUser();
 function currentUser(){
   if(typeof localAuthUser!=="undefined" && localAuthUser) return localAuthUser;
   if(typeof useLocalAdminFallback==="function"){
