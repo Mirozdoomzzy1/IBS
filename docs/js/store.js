@@ -125,8 +125,24 @@ function apiErrorMessage(status,body){
     return String(body||`HTTP ${status}`);
   }catch{return String(body||`HTTP ${status}`)}
 }
+function clearExpiredCockroachSession(){
+  supabaseSession=null;supabaseAuthUser=null;localAuthUser=null;supabaseRevision=null;
+  try{localStorage.removeItem(SUPABASE_SESSION_KEY);localStorage.removeItem('ibs_local_auth_user');localStorage.removeItem('ibs_local_admin_session')}catch(e){}
+}
+function isJwtExpired(token){
+  try{
+    const part=String(token||'').split('.')[1];
+    if(!part)return false;
+    const payload=JSON.parse(atob(part.replace(/-/g,'+').replace(/_/g,'/')));
+    return !!payload.exp && Date.now()/1000 >= Number(payload.exp)-15;
+  }catch(e){return false}
+}
 async function cockroachFetch(path,options={}){
   if(!supabaseConfigured())throw new Error('Cockroach API is not configured. Edit docs/js/cockroach-config.js.');
+  if(supabaseSession?.access_token && isJwtExpired(supabaseSession.access_token)){
+    clearExpiredCockroachSession();
+    throw new Error('Your session has expired. Please sign in again.');
+  }
   let r;
   try {
     r=await fetch(apiUrl(path),{...options,headers:apiHeaders(options.headers||{}),cache:'no-store'});
@@ -134,6 +150,13 @@ async function cockroachFetch(path,options={}){
     throw new Error(`Cannot reach the CockroachDB API at ${apiUrl(path)}. Make sure the Vercel deployment contains the /api functions and is deployed successfully. (${e?.message||e})`);
   }
   const text=await r.text();
+  if(r.status===401){
+    const msg=apiErrorMessage(r.status,text);
+    if(/jwt|token|expired|unauthor/i.test(msg)){
+      clearExpiredCockroachSession();
+      throw new Error('Your session has expired. Please sign in again.');
+    }
+  }
   if(!r.ok)throw new Error(apiErrorMessage(r.status,text));
   if(!text)return null; try{return JSON.parse(text)}catch{return text}
 }
@@ -143,7 +166,7 @@ async function supabaseFetch(path,options={}){
   if(path.startsWith('/rest/v1/rpc/add_ibs_comment'))return cockroachFetch('/comment',{method:'POST',body:options.body||'{}'});
   throw new Error('Legacy Supabase endpoint is no longer supported: '+path);
 }
-function restoreSupabaseSession(){try{const raw=localStorage.getItem(SUPABASE_SESSION_KEY);if(raw){const x=JSON.parse(raw);if(x?.access_token){supabaseSession=x;supabaseAuthUser=x.user||null;localAuthUser=x.user||null;return x}}}catch(e){console.warn("Could not restore CockroachDB session",e)}return null}
+function restoreSupabaseSession(){try{const raw=localStorage.getItem(SUPABASE_SESSION_KEY);if(raw){const x=JSON.parse(raw);if(x?.access_token){if(isJwtExpired(x.access_token)){clearExpiredCockroachSession();return null}supabaseSession=x;supabaseAuthUser=x.user||null;localAuthUser=x.user||null;return x}}}catch(e){console.warn("Could not restore CockroachDB session",e)}return null}
 async function supabaseLogin(username,password){
   const r=await cockroachFetch('/login',{method:'POST',body:JSON.stringify({username,password})});
   supabaseSession={access_token:r.token,user:r.user};supabaseAuthUser=r.user;localAuthUser=r.user;
