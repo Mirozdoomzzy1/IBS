@@ -192,6 +192,12 @@ export default async function handler(req,res){
     if(req.method==='PUT'){
       const body=req.body||{};const p=body.project;if(!p||typeof p!=='object')return json(res,400,{error:'project object is required.'});
       const changes=arr(body.changes);
+      if(user.role==='Manager'){
+        const allowed=new Set(['comments']);
+        const blocked=changes.filter(x=>!allowed.has(String(x)));
+        if(blocked.length) return json(res,403,{error:'Manager accounts are read-only. Managers can only add comments.',blockedChanges:blocked});
+      }
+
       const out=await withTx(async c=>{
         const exists=(await c.query('select id from projects where id=$1',[PROJECT_ID])).rows[0];
         if(!exists) await c.query(`insert into projects(id,name,description,owner,updated_at,updated_by) values($1,$2,$3,$4,now(),$5)`,[PROJECT_ID,p.project?.name||'Design Studio',p.project?.description||'',p.project?.owner||'',user.username]);

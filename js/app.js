@@ -35,10 +35,11 @@ const navSections = [
     ["tasks","☷","Tasks & Traceability"],
     ["task-board","▥","Task Board"],
     ["traceability","↗","Traceability"],
+    ["manager-dashboard","◉","Manager Dashboard"],
     ["architecture","◎","Architecture Map"],
     ["technical","⬡","Technical Architecture"]
   ]},
-  {title:"PROJECT OWNER", items:[
+  {title:"PRODUCT OWNER", items:[
     ["references","▧","Reference Images"],
     ["documentation","▥","Documentation"],
     ["settings","⚙","Project Settings"]
@@ -236,6 +237,44 @@ function addQuickNavCarousel(){
   const track=content.querySelector(".carousel-track");
   content.querySelector('[data-carousel="prev"]').onclick=()=>track.scrollBy({left:-300,behavior:"smooth"});
   content.querySelector('[data-carousel="next"]').onclick=()=>track.scrollBy({left:300,behavior:"smooth"});
+}
+
+function renderManagerDashboard(){
+  const c=counts();
+  const tasks=(project.timeline||[]).slice();
+  const users=project.security?.users||[];
+  const links=project.artifactLinks||project.artifact_links||[];
+  const done=tasks.filter(t=>t.status==='Done').length;
+  const inProgress=tasks.filter(t=>t.status==='In Progress').length;
+  const blocked=tasks.filter(t=>t.status==='Blocked').length;
+  const planned=tasks.filter(t=>t.status==='Planned').length;
+  const totalReq=project.requirements.length;
+  const linkedReq=new Set(links.filter(l=>l.sourceType==='requirement'||l.targetType==='requirement').flatMap(l=>[l.sourceId,l.targetId].filter((id,i)=>((l.sourceType==='requirement'&&i===0)||(l.targetType==='requirement'&&i===1))))).size;
+  const linkedScreen=new Set(links.filter(l=>l.sourceType==='screen'||l.targetType==='screen').flatMap(l=>[l.sourceId,l.targetId].filter((id,i)=>((l.sourceType==='screen'&&i===0)||(l.targetType==='screen'&&i===1))))).size;
+  const reqCoverage=totalReq?Math.round(linkedReq/totalReq*100):0;
+  const screenCoverage=project.screens.length?Math.round(linkedScreen/project.screens.length*100):0;
+  const moduleRows=project.modules.map(m=>{
+    const mc=counts(m.id), mt=tasks.filter(t=>t.moduleId===m.id), md=mt.length?Math.round(mt.filter(t=>t.status==='Done').length/mt.length*100):0;
+    return `<tr><td><button class="link-button" data-module="${esc(m.id)}" data-target="module-workspace"><strong>${esc(m.name)}</strong></button></td><td>${mc.requirements}</td><td>${mc.screens}</td><td>${mc.entities}</td><td>${mc.apis+mc.logic}</td><td>${mc.tests}</td><td>${mt.length}</td><td><span class="tag ${md===100?'green':md>0?'blue':'orange'}">${md}%</span></td></tr>`;
+  }).join('');
+  const assignees=[...new Set(tasks.map(t=>t.assigneeId||'UNASSIGNED'))].map(id=>{
+    const u=users.find(x=>x.id===id); const name=id==='UNASSIGNED'?'Unassigned':(u?.displayName||u?.username||'Unknown');
+    const ts=tasks.filter(t=>(t.assigneeId||'UNASSIGNED')===id); return {name,total:ts.length,done:ts.filter(t=>t.status==='Done').length,blocked:ts.filter(t=>t.status==='Blocked').length};
+  }).sort((a,b)=>b.total-a.total);
+  const risks=[];
+  project.requirements.filter(r=>!links.some(l=>(l.sourceType==='requirement'&&l.sourceId===r.id)||(l.targetType==='requirement'&&l.targetId===r.id))).slice(0,12).forEach(r=>risks.push(`Requirement <b>${esc(r.title||r.id)}</b> has no traceability links.`));
+  project.screens.filter(s=>!links.some(l=>(l.sourceType==='screen'&&l.sourceId===s.id)||(l.targetType==='screen'&&l.targetId===s.id))).slice(0,12).forEach(x=>risks.push(`Screen <b>${esc(x.name||x.id)}</b> has no traceability links.`));
+  tasks.filter(t=>t.status==='Blocked').slice(0,12).forEach(t=>risks.push(`Task <b>${esc(t.name||t.id)}</b> is blocked.`));
+  tasks.filter(t=>!t.assigneeId&&!t.assigneeName).slice(0,12).forEach(t=>risks.push(`Task <b>${esc(t.name||t.id)}</b> is unassigned.`));
+  const recent=(project.audit||project.auditLog||project.project?.audit||[]).slice(-8).reverse();
+  $('#content').innerHTML=`
+    <div class="home-welcome"><div class="home-welcome-copy"><span class="eyebrow">MANAGER VIEW · READ ONLY</span><h1>Project Management Dashboard</h1><p>Architecture, delivery progress, ownership and project health at a glance. Managers can review everything and comment, but cannot change project data.</p></div><div class="home-welcome-stats"><div><b>${project.modules.length}</b><span>Modules</span></div><div><b>${c.requirements+c.screens+c.entities+c.apis+c.logic+c.tests}</b><span>Artifacts</span></div><div><b>${tasks.length}</b><span>Tasks</span></div></div></div>
+    <div class="grid cards">${metric('Requirements',c.requirements,'▤')}${metric('Screens',c.screens,'▣')}${metric('ERD Tables',c.entities,'◇')}${metric('Backend',c.apis+c.logic,'⚙')}${metric('Testing',c.tests,'🧪')}${metric('Traceability',reqCoverage+'%','↗')}</div>
+    <div class="grid cards">${metric('Done',done,'✓')}${metric('In Progress',inProgress,'▶')}${metric('Blocked',blocked,'!')}${metric('Planned',planned,'○')}${metric('Screen coverage',screenCoverage+'%','▣')}</div>
+    <div class="card"><div class="card-title"><div><span class="eyebrow">ARCHITECTURE</span><h2>Module architecture overview</h2><span class="muted small-text">Click a module to inspect its workspace.</span></div><button class="btn secondary" data-view="architecture">Open Architecture Map</button></div><div class="table-wrap"><table class="table"><thead><tr><th>Module</th><th>Req</th><th>Screens</th><th>ERD</th><th>Backend</th><th>Tests</th><th>Tasks</th><th>Task progress</th></tr></thead><tbody>${moduleRows}</tbody></table></div></div>
+    <div class="grid two-col"><div class="card"><div class="card-title"><div><span class="eyebrow">DELIVERY</span><h2>Tasks by assignee</h2></div><button class="btn secondary" data-view="task-board">Open Task Board</button></div><div class="table-wrap"><table class="table"><thead><tr><th>Assignee</th><th>Total</th><th>Done</th><th>Blocked</th></tr></thead><tbody>${assignees.map(a=>`<tr><td><strong>${esc(a.name)}</strong></td><td>${a.total}</td><td>${a.done}</td><td>${a.blocked}</td></tr>`).join('')||'<tr><td colspan="4">No tasks yet.</td></tr>'}</tbody></table></div></div>
+    <div class="card"><div class="card-title"><div><span class="eyebrow">ATTENTION</span><h2>Risks & missing connections</h2></div><button class="btn secondary" data-view="traceability">Open Traceability</button></div><div class="stack-list">${risks.length?risks.slice(0,10).map(r=>`<div class="stack-item"><span class="tag orange">Attention</span><span>${r}</span></div>`).join(''):'<div class="empty"><strong>No immediate issues detected.</strong></div>'}</div></div></div>
+    <div class="card"><div class="card-title"><div><span class="eyebrow">ACTIVITY</span><h2>Recent project activity</h2></div><button class="btn secondary" data-view="audit">Open Audit Log</button></div>${recent.length?`<div class="table-wrap"><table class="table"><thead><tr><th>When</th><th>User</th><th>Action</th><th>Object</th></tr></thead><tbody>${recent.map(a=>`<tr><td>${esc(a.changedAt||a.createdAt||a.changed_at||'')}</td><td>${esc(a.actorName||a.authorName||a.actor_name||'—')}</td><td>${esc(a.action||'—')}</td><td>${esc(a.objectType||a.object_type||'')} ${esc(a.objectId||a.object_id||'')}</td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">No recent audit activity available.</div>'}</div>`;
 }
 
 function renderDashboard(){
@@ -1564,7 +1603,7 @@ function handleAction(action,id){
   const writeActions=['new-module','new-screen-for-module','edit-module','delete-module','new-requirement','edit-requirement','delete-requirement','new-screen','edit-screen','delete-screen','save-component','delete-component','new-entity','edit-entity','delete-entity','new-relation','edit-relation','delete-relation','new-api','edit-api','delete-api','new-logic','edit-logic','delete-logic','new-timeline-task','edit-timeline-task','delete-timeline-task','new-user','edit-user','delete-user','new-role','edit-role','new-reference','edit-reference','delete-reference','reset-project'];
   const securityActions=['new-user','edit-user','delete-user','new-role','edit-role'];
   if(securityActions.includes(action) && !hasAccess('SECURITY.EDIT')){showToast('Security administration requires Administrator access');return;}
-  if(writeActions.includes(action) && currentUser()?.role==='Viewer'){showToast('Viewer accounts are read-only');return;}
+  if(writeActions.includes(action) && ['Viewer','Manager'].includes(currentUser()?.role)){showToast(currentUser()?.role==='Manager'?'Manager accounts are read-only; you can add comments.':'Viewer accounts are read-only');return;}
 
   switch(action){
     case "add-project-comment": addProjectComment();break;
@@ -1746,6 +1785,7 @@ function securityDefaults(){
   project.security.users ||= [];
   project.security.roles ||= [
     {id:"ADMIN",name:"Administrator",description:"Full access to all design and security features."},
+    {id:"MANAGER",name:"Manager",description:"Read-only access to the project with permission to comment on all objects."},
     {id:"ARCH",name:"Architect",description:"Design, edit and manage technical artifacts."},
     {id:"DESIGNER",name:"Designer",description:"Requirements, screens and ERD design."},
     {id:"VIEWER",name:"Viewer",description:"Read-only project access."}
@@ -1786,7 +1826,7 @@ function setView(view,moduleId=null){
   if(view==='access' && !hasAccess('SECURITY.VIEW')){showToast('You do not have security-center access');return;}
   if(['requirements','screens','erd','project-erd','backend','modules','timeline'].includes(view) && currentUser()?.role==='Viewer' && view==='modules'){/* allowed read-only */}
   if(moduleId && project.security?.moduleAccess){
-    const u=currentUser(); const roleKey={Administrator:'ADMIN',Architect:'ARCH',Designer:'DESIGNER',Viewer:'VIEWER'}; const role=roleKey[u?.role]||'VIEWER';
+    const u=currentUser(); const roleKey={Administrator:'ADMIN',Architect:'ARCH',Designer:'DESIGNER',Manager:'MANAGER',Viewer:'VIEWER'}; const role=roleKey[u?.role]||'VIEWER';
     if(project.security.moduleAccess[moduleId]?.[role]===false){showToast('Your role does not have access to this module');return;}
   }
   state.view=view; if(moduleId!==null) state.moduleId=moduleId;
@@ -1796,9 +1836,10 @@ function setView(view,moduleId=null){
   render();
 }
 function nav(){
-  const u=currentUser(); const roleKey={Administrator:'ADMIN',Architect:'ARCH',Designer:'DESIGNER',Viewer:'VIEWER'}; const role=roleKey[u?.role]||'VIEWER';
+  const u=currentUser(); const roleKey={Administrator:'ADMIN',Architect:'ARCH',Designer:'DESIGNER',Manager:'MANAGER',Viewer:'VIEWER'}; const role=roleKey[u?.role]||'VIEWER';
   const can=(id)=>{
     if(id==='access'||id==='settings') return role==='ADMIN';
+    if(id==='manager-dashboard') return role==='MANAGER' || role==='ADMIN';
     if(['backend','erd','project-erd','screens','requirements','modules','timeline','task-board','architecture','technical','traceability','validation','testing','documentation','references','dashboard'].includes(id)) return true;
     return true;
   };
@@ -1829,16 +1870,17 @@ function renderLogin(){
 function hasAccess(permission,moduleId=null){
   const u=currentUser(); if(!u)return false;
   if(u.role==="Administrator")return true;
-  const map={Architect:"ARCH",Designer:"DESIGNER",Viewer:"VIEWER"}; const role=map[u.role]||"VIEWER";
+  const map={Architect:"ARCH",Designer:"DESIGNER",Manager:"MANAGER",Viewer:"VIEWER"}; const role=map[u.role]||"VIEWER";
   if(moduleId && project.security?.moduleAccess?.[moduleId]?.[role]===false)return false;
-  if(u.role==="Viewer")return permission.endsWith(".VIEW") || permission==="PROJECT.VIEW";
+  if(u.role==="Viewer" || u.role==="Manager")return permission.endsWith(".VIEW") || permission==="PROJECT.VIEW";
+  if(u.role==="Manager")return permission.endsWith(".VIEW") || permission==="PROJECT.VIEW";
   if(u.role==="Architect")return permission!=="SECURITY.EDIT";
   return true;
 }
 function renderAccess(){
   securityDefaults();
   const u=currentUser();
-  const roleKey={Administrator:"ADMIN",Architect:"ARCH",Designer:"DESIGNER",Viewer:"VIEWER"};
+  const roleKey={Administrator:"ADMIN",Architect:"ARCH",Designer:"DESIGNER",Manager:"MANAGER",Viewer:"VIEWER"};
   const role=roleKey[u?.role]||"VIEWER";
   const rows=(project.security.users||[]).map(user=>{
     const fixed=user.id==="USR-001";
@@ -1849,7 +1891,7 @@ function renderAccess(){
   bindActions();
 }
 function switchAccessTab(tab){
-  securityDefaults(); const u=currentUser(); const roleKey={Administrator:"ADMIN",Architect:"ARCH",Designer:"DESIGNER",Viewer:"VIEWER"}; const role=roleKey[u?.role]||"VIEWER";
+  securityDefaults(); const u=currentUser(); const roleKey={Administrator:"ADMIN",Architect:"ARCH",Designer:"DESIGNER",Manager:"MANAGER",Viewer:"VIEWER"}; const role=roleKey[u?.role]||"VIEWER";
   $$(".access-tab").forEach(x=>x.classList.toggle("active",x.dataset.accessTab===tab)); const p=$("#accessPanel");
   if(tab==='users'){renderAccess();return;}
   if(tab==='roles'){p.innerHTML=`<div class="card-title"><div><h2>Roles & Permissions</h2><span class="muted small-text">Role definitions and permission catalogue.</span></div><button class="btn primary" data-action="new-role">＋ New Role</button></div><div class="role-grid">${project.security.roles.map(r=>`<div class="role-card"><div class="role-icon">${r.id==='ADMIN'?'♛':r.id==='VIEWER'?'◉':'◆'}</div><h3>${esc(r.name)}</h3><p>${esc(r.description)}</p><div class="role-perms">${project.security.permissions.slice(0, r.id==='ADMIN'?project.security.permissions.length:r.id==='VIEWER'?3:10).map(x=>`<span>${esc(x)}</span>`).join('')}</div><button class="btn secondary" data-action="edit-role" data-id="${r.id}">Edit</button></div>`).join('')}</div><div class="permission-catalog"><h3>Permission Catalogue</h3><div class="permission-grid">${permissionCards}</div></div>`;}
@@ -1857,7 +1899,7 @@ function switchAccessTab(tab){
   if(tab==='navigation'){p.innerHTML=`<div class="card-title"><div><h2>Navigation Visibility</h2><span class="muted small-text">The menu follows role permissions. Viewers get read-only navigation.</span></div></div><div class="navigation-permission-grid">${navSections.flatMap(s=>s.items).map(([id,icon,label])=>`<div class="nav-perm"><span class="nav-icon">${icon}</span><div><b>${esc(label)}</b><small>${id.toUpperCase()}.VIEW</small></div><span class="status-chip ok">${role==='VIEWER' && ['settings','access'].includes(id)?'Hidden':'Visible'}</span></div>`).join('')}</div>`;}
   bindActions();
 }
-function userForm(item){item ||= {id:uid("USR"),username:"",displayName:"",role:"Viewer",active:true,password:"",comments:""};return `<div class="form-grid"><div class="field"><label>User ID</label><input name="id" value="${esc(item.id)}" readonly></div><div class="field"><label>Username</label><input name="username" value="${esc(item.username)}" placeholder="e.g. john.smith" ${item.username?"readonly":""}></div><div class="field"><label>Display name</label><input name="displayName" value="${esc(item.displayName)}"></div><div class="field"><label>Role</label><select name="role">${["Administrator","Architect","Designer","Viewer"].map(x=>`<option ${x===item.role?"selected":""}>${x}</option>`).join("")}</select></div><div class="field"><label>${item.username?"New password (optional)":"Password"}</label><input name="password" type="password" value="" autocomplete="new-password" placeholder="Enter password"></div><div class="field"><label>Status</label><select name="active"><option value="true" ${item.active?"selected":""}>Active</option><option value="false" ${!item.active?"selected":""}>Disabled</option></select></div><div class="field full"><label>💬 Comments</label><textarea name="comments">${esc(item.comments||"")}</textarea></div></div>`}
+function userForm(item){item ||= {id:uid("USR"),username:"",displayName:"",role:"Viewer",active:true,password:"",comments:""};return `<div class="form-grid"><div class="field"><label>User ID</label><input name="id" value="${esc(item.id)}" readonly></div><div class="field"><label>Username</label><input name="username" value="${esc(item.username)}" placeholder="e.g. john.smith" ${item.username?"readonly":""}></div><div class="field"><label>Display name</label><input name="displayName" value="${esc(item.displayName)}"></div><div class="field"><label>Role</label><select name="role">${["Administrator","Architect","Designer","Manager","Viewer"].map(x=>`<option ${x===item.role?"selected":""}>${x}</option>`).join("")}</select></div><div class="field"><label>${item.username?"New password (optional)":"Password"}</label><input name="password" type="password" value="" autocomplete="new-password" placeholder="Enter password"></div><div class="field"><label>Status</label><select name="active"><option value="true" ${item.active?"selected":""}>Active</option><option value="false" ${!item.active?"selected":""}>Disabled</option></select></div><div class="field full"><label>💬 Comments</label><textarea name="comments">${esc(item.comments||"")}</textarea></div></div>`}
 function roleForm(item){item ||= {id:uid('ROLE'),name:'',description:''};return `<div class="form-grid"><div class="field"><label>Role ID</label><input name="id" value="${esc(item.id)}" readonly></div><div class="field"><label>Name</label><input name="name" value="${esc(item.name)}"></div><div class="field full"><label>Description</label><textarea name="description">${esc(item.description||'')}</textarea></div></div>`}
 
 function render(){
@@ -1865,9 +1907,9 @@ function render(){
   securityDefaults();
   if(!currentUser()){renderLogin();return;}
   normalizeDesignData(); normalizeComments(); nav();
-  const titles={dashboard:"Design Studio",timeline:"Timeline / Project Plan",architecture:"Architecture Map",technical:"Technical Architecture",modules:"System Blueprint",requirements:"Business Requirements","module-workspace":"Module Workspace",screens:"Screen Designer",erd:"Module ERD","project-erd":"Full Project ERD",backend:"Backend Logic",tasks:"Tasks & Traceability","task-board":"Task Board",traceability:"Traceability",validation:"Validation",testing:"Testing",documentation:"Documentation",settings:"Settings",access:"Users & Access",audit:"Audit Log",references:"Reference Images"};
+  const titles={dashboard:"Design Studio","manager-dashboard":"Manager Dashboard",timeline:"Timeline / Project Plan",architecture:"Architecture Map",technical:"Technical Architecture",modules:"System Blueprint",requirements:"Business Requirements","module-workspace":"Module Workspace",screens:"Screen Designer",erd:"Module ERD","project-erd":"Full Project ERD",backend:"Backend Logic",tasks:"Tasks & Traceability","task-board":"Task Board",traceability:"Traceability",validation:"Validation",testing:"Testing",documentation:"Documentation",settings:"Settings",access:"Users & Access",audit:"Audit Log",references:"Reference Images"};
   $("#pageTitle").textContent=titles[state.view]||"Design Studio"; $("#breadcrumb").textContent=state.moduleId?`${titles[state.view]} / ${moduleById(state.moduleId)?.name||""}`:titles[state.view];
-  const handlers={dashboard:renderDashboard,timeline:renderTimeline,architecture:renderArchitecture,technical:renderTechnicalArchitecture,modules:renderModules,"module-workspace":renderModuleWorkspace,requirements:renderRequirements,screens:renderScreens,erd:renderERD,"project-erd":renderProjectERD,backend:renderBackend,tasks:renderTasks,"task-board":renderTaskBoard,traceability:renderTraceability,validation:renderValidation,testing:renderTesting,documentation:renderDocumentation,settings:renderSettings,access:renderAccess,audit:renderAudit,references:renderReferences};
+  const handlers={dashboard:(currentUser()?.role==="Manager"?renderManagerDashboard:renderDashboard),"manager-dashboard":renderManagerDashboard,timeline:renderTimeline,architecture:renderArchitecture,technical:renderTechnicalArchitecture,modules:renderModules,"module-workspace":renderModuleWorkspace,requirements:renderRequirements,screens:renderScreens,erd:renderERD,"project-erd":renderProjectERD,backend:renderBackend,tasks:renderTasks,"task-board":renderTaskBoard,traceability:renderTraceability,validation:renderValidation,testing:renderTesting,documentation:renderDocumentation,settings:renderSettings,access:renderAccess,audit:renderAudit,references:renderReferences};
   (handlers[state.view]||renderDashboard)(); addModulePhaseNav(); addQuickNavCarousel();
   const top=$(".top-actions"); if(top){ top.querySelector(".user-pill")?.remove(); const b=top.querySelector(".auth-btn-global"); if(b){ b.textContent="↪ Sign out"; b.style.display="inline-flex"; } top.querySelector(".status-pill")?.insertAdjacentHTML("afterend",`<span class="user-pill">👤 ${esc(currentUser().displayName||currentUser().username)} · ${esc(currentUser().role)}</span>`); }
   bindActions();
