@@ -941,6 +941,8 @@ function bindScreenDesigner(active){
   });
   const search=$("#componentSearch");
   if(search) search.oninput=()=>$$(".palette-item").forEach(x=>x.style.display=x.textContent.toLowerCase().includes(search.value.toLowerCase())?"":"none");
+  bindTouchScreenReorder();
+  bindPaletteDrag();
   bindPropertyTabs();
 }
 
